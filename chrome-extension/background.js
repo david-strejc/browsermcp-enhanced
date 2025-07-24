@@ -104,7 +104,7 @@ messageHandlers.set('tabs.close', async ({ index }) => {
 });
 
 // Existing handlers
-messageHandlers.set('snapshot.accessibility', async () => {
+messageHandlers.set('snapshot.accessibility', async (options = {}) => {
   if (!activeTabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab?.id;
@@ -116,7 +116,8 @@ messageHandlers.set('snapshot.accessibility', async () => {
   
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
-    func: captureAccessibilitySnapshot
+    func: captureAccessibilitySnapshot,
+    args: [options]
   });
   
   return { snapshot: result.result };
@@ -217,7 +218,7 @@ messageHandlers.set('page.wait', async ({ time }) => {
 });
 
 // Functions to inject into page
-function captureAccessibilitySnapshot() {
+function captureAccessibilitySnapshot(options = {}) {
   // Enhanced implementation with stable element IDs and better formatting
   function isVisible(element) {
     if (element === document.body) return true;
@@ -307,10 +308,89 @@ function captureAccessibilitySnapshot() {
     return roleMap[tagName] || tagName;
   }
   
-  function traverse(element, depth = 0) {
+  // Check if element should be included based on mode
+  function shouldInclude(element, mode) {
+    if (mode === 'minimal') {
+      // Interactive elements
+      const interactiveTags = ['a', 'button', 'input', 'select', 'textarea', 'label'];
+      const interactiveRoles = ['button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem', 'tab'];
+      
+      const tagName = element.tagName.toLowerCase();
+      const role = element.getAttribute('role') || getRole(element);
+      
+      // Include if interactive
+      if (interactiveTags.includes(tagName) || interactiveRoles.includes(role)) {
+        return true;
+      }
+      
+      // Include headings and landmarks
+      if (['h1', 'h2', 'h3', 'nav', 'main', 'header', 'footer', 'aside'].includes(tagName)) {
+        return true;
+      }
+      
+      // Include if has click handler
+      if (element.onclick || element.hasAttribute('onclick') || element.style.cursor === 'pointer') {
+        return true;
+      }
+      
+      // Include if contenteditable
+      if (element.contentEditable === 'true') {
+        return true;
+      }
+      
+      // Include if it's an ancestor of an interactive element
+      const hasInteractiveDescendant = element.querySelector(interactiveTags.join(','));
+      if (hasInteractiveDescendant) {
+        return true;
+      }
+      
+      return false;
+    }
+    
+    // Full mode - include everything visible
+    return true;
+  }
+  
+  // Check if element is in viewport (with buffer)
+  function isInViewport(element) {
+    if (options.viewportOnly) {
+      const rect = element.getBoundingClientRect();
+      const buffer = window.innerHeight; // Include one viewport height as buffer
+      return (
+        rect.bottom >= -buffer &&
+        rect.top <= window.innerHeight + buffer &&
+        rect.right >= 0 &&
+        rect.left <= window.innerWidth
+      );
+    }
+    return true;
+  }
+  
+  function traverse(element, depth = 0, isAncestorOfInteractive = false) {
     // Skip invisible elements
     if (!isVisible(element)) {
       return '';
+    }
+    
+    // Skip if not in viewport (when viewportOnly is enabled)
+    if (!isInViewport(element)) {
+      return '';
+    }
+    
+    const mode = options.level || 'full';
+    
+    // For minimal mode, check if we should include this element
+    if (mode === 'minimal' && !isAncestorOfInteractive && !shouldInclude(element, mode)) {
+      // Still traverse children in case they're interactive
+      const children = Array.from(element.children);
+      let childResults = [];
+      for (const child of children) {
+        const childResult = traverse(child, depth, false);
+        if (childResult) {
+          childResults.push(childResult);
+        }
+      }
+      return childResults.join('\n');
     }
     
     const role = getRole(element);
@@ -352,8 +432,10 @@ function captureAccessibilitySnapshot() {
     const skipChildren = ['input', 'textarea', 'select', 'img', 'br', 'hr'];
     if (!skipChildren.includes(element.tagName.toLowerCase())) {
       const children = Array.from(element.children);
+      // Check if this element or any ancestor is interactive for minimal mode
+      const isInteractive = mode === 'minimal' && shouldInclude(element, mode);
       for (const child of children) {
-        const childResult = traverse(child, depth + 1);
+        const childResult = traverse(child, depth + 1, isAncestorOfInteractive || isInteractive);
         if (childResult) {
           result += '\n' + childResult;
         }
@@ -364,8 +446,14 @@ function captureAccessibilitySnapshot() {
   }
   
   // Add page context at the top
-  const pageInfo = `Page: ${document.title || 'Untitled'}\nURL: ${window.location.href}\n\n`;
-  return pageInfo + traverse(document.body);
+  const pageInfo = `Page: ${document.title || 'Untitled'}\nURL: ${window.location.href}\n`;
+  
+  // Add mode info
+  const mode = options.level || 'full';
+  const modeInfo = mode === 'minimal' ? '[Minimal snapshot - showing interactive elements only]\n' : '';
+  const viewportInfo = options.viewportOnly ? '[Viewport filtering enabled]\n' : '';
+  
+  return pageInfo + modeInfo + viewportInfo + '\n' + traverse(document.body);
 }
 
 function queryElements(selector, all) {

@@ -4,8 +4,15 @@ import { ToolResult } from "../tools/tool";
 export async function captureAriaSnapshot(
   context: Context,
   status: string = "",
+  options: { level?: 'minimal' | 'full'; viewportOnly?: boolean } = {},
 ): Promise<ToolResult> {
-  const response = await context.sendSocketMessage("snapshot.accessibility", {});
+  // Default to minimal mode for better token efficiency
+  const snapshotOptions = {
+    level: options.level || 'minimal',
+    viewportOnly: options.viewportOnly ?? true
+  };
+  
+  const response = await context.sendSocketMessage("snapshot.accessibility", snapshotOptions);
   return {
     content: [
       {
