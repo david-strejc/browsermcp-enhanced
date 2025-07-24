@@ -218,18 +218,42 @@ messageHandlers.set('page.wait', async ({ time }) => {
 
 // Functions to inject into page
 function captureAccessibilitySnapshot() {
-  // Simple implementation - in real extension this would be more sophisticated
+  // Enhanced implementation with stable element IDs
   function traverse(element, depth = 0) {
+    // Skip hidden elements
+    if (!element.offsetParent && element.tagName !== 'BODY') {
+      return '';
+    }
+    
     const role = element.getAttribute('role') || element.tagName.toLowerCase();
     const name = element.getAttribute('aria-label') || 
                  element.getAttribute('alt') || 
                  element.textContent?.trim().substring(0, 100) || '';
     
-    let result = '  '.repeat(depth) + `${role} "${name}"`;
+    // Get stable element ID
+    const elementId = window.__elementTracker.getElementId(element);
     
+    // Format: role "name" [ref=123]
+    let result = '  '.repeat(depth) + `${role} "${name}" [ref=${elementId}]`;
+    
+    // Add interactive elements' additional attributes
+    if (['button', 'a', 'input', 'select', 'textarea'].includes(element.tagName.toLowerCase())) {
+      const attrs = [];
+      if (element.type) attrs.push(`type="${element.type}"`);
+      if (element.href) attrs.push(`href="${element.href}"`);
+      if (element.value && element.tagName !== 'TEXTAREA') attrs.push(`value="${element.value}"`);
+      if (attrs.length > 0) {
+        result += ` {${attrs.join(', ')}}`;
+      }
+    }
+    
+    // Traverse children
     if (element.children.length > 0) {
       for (const child of element.children) {
-        result += '\n' + traverse(child, depth + 1);
+        const childResult = traverse(child, depth + 1);
+        if (childResult) {
+          result += '\n' + childResult;
+        }
       }
     }
     
@@ -251,67 +275,124 @@ function queryElements(selector, all) {
 }
 
 function clickElement(ref) {
-  // Simple ref parsing - in real implementation would be more robust
-  const match = ref.match(/(.+)\[(\d+)\]/);
-  if (match) {
-    const [, selector, index] = match;
+  // Support both old format (selector[index]) and new format ([ref=123])
+  
+  // Check if it's new ref format
+  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
+  if (refMatch) {
+    const elementId = refMatch[1];
+    const element = window.__elementTracker.getElementById(elementId);
+    if (element) {
+      element.click();
+      return true;
+    } else {
+      throw new Error(`Element with ref ${elementId} not found`);
+    }
+  }
+  
+  // Fallback to old selector[index] format
+  const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
+  if (selectorMatch) {
+    const [, selector, index] = selectorMatch;
     const element = document.querySelectorAll(selector)[parseInt(index)];
     if (element) {
       element.click();
+      return true;
     }
   }
+  
+  throw new Error(`Invalid element reference: ${ref}`);
 }
 
 function hoverElement(ref) {
-  const match = ref.match(/(.+)\[(\d+)\]/);
-  if (match) {
-    const [, selector, index] = match;
-    const element = document.querySelectorAll(selector)[parseInt(index)];
-    if (element) {
-      const event = new MouseEvent('mouseover', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-      element.dispatchEvent(event);
+  let element = null;
+  
+  // Check if it's new ref format
+  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
+  if (refMatch) {
+    element = window.__elementTracker.getElementById(refMatch[1]);
+  } else {
+    // Fallback to old selector[index] format
+    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
+    if (selectorMatch) {
+      const [, selector, index] = selectorMatch;
+      element = document.querySelectorAll(selector)[parseInt(index)];
     }
   }
+  
+  if (element) {
+    const event = new MouseEvent('mouseover', {
+      view: window,
+      bubbles: true,
+      cancelable: true
+    });
+    element.dispatchEvent(event);
+    return true;
+  }
+  
+  throw new Error(`Element not found: ${ref}`);
 }
 
 function typeInElement(ref, text, submit) {
-  const match = ref.match(/(.+)\[(\d+)\]/);
-  if (match) {
-    const [, selector, index] = match;
-    const element = document.querySelectorAll(selector)[parseInt(index)];
-    if (element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
-      element.focus();
-      element.value = text;
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      
-      if (submit) {
-        const form = element.closest('form');
-        if (form) {
-          form.submit();
-        } else {
-          element.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
-        }
-      }
+  let element = null;
+  
+  // Check if it's new ref format
+  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
+  if (refMatch) {
+    element = window.__elementTracker.getElementById(refMatch[1]);
+  } else {
+    // Fallback to old selector[index] format
+    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
+    if (selectorMatch) {
+      const [, selector, index] = selectorMatch;
+      element = document.querySelectorAll(selector)[parseInt(index)];
     }
   }
+  
+  if (element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
+    element.focus();
+    element.value = text;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    if (submit) {
+      const form = element.closest('form');
+      if (form) {
+        form.submit();
+      } else {
+        element.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+      }
+    }
+    return true;
+  }
+  
+  throw new Error(`Input element not found or not editable: ${ref}`);
 }
 
 function selectOptions(ref, values) {
-  const match = ref.match(/(.+)\[(\d+)\]/);
-  if (match) {
-    const [, selector, index] = match;
-    const element = document.querySelectorAll(selector)[parseInt(index)];
-    if (element && element.tagName === 'SELECT') {
-      for (const option of element.options) {
-        option.selected = values.includes(option.value);
-      }
-      element.dispatchEvent(new Event('change', { bubbles: true }));
+  let element = null;
+  
+  // Check if it's new ref format
+  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
+  if (refMatch) {
+    element = window.__elementTracker.getElementById(refMatch[1]);
+  } else {
+    // Fallback to old selector[index] format
+    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
+    if (selectorMatch) {
+      const [, selector, index] = selectorMatch;
+      element = document.querySelectorAll(selector)[parseInt(index)];
     }
   }
+  
+  if (element && element.tagName === 'SELECT') {
+    for (const option of element.options) {
+      option.selected = values.includes(option.value);
+    }
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+  
+  throw new Error(`Select element not found: ${ref}`);
 }
 
 function pressKey(key) {
