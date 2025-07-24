@@ -380,124 +380,156 @@ function queryElements(selector, all) {
 }
 
 function clickElement(ref) {
-  // Support both old format (selector[index]) and new format ([ref=123])
-  
-  // Check if it's new ref format
-  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
-  if (refMatch) {
-    const elementId = refMatch[1];
-    const element = window.__elementTracker.getElementById(elementId);
-    if (element) {
-      element.click();
-      return true;
-    } else {
-      throw new Error(`Element with ref ${elementId} not found`);
-    }
+  // Validate element exists and is clickable
+  const validation = window.__elementValidator.validateElement(ref);
+  if (!validation.valid) {
+    throw new Error(`Click validation failed: ${validation.error}`);
   }
   
-  // Fallback to old selector[index] format
-  const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
-  if (selectorMatch) {
-    const [, selector, index] = selectorMatch;
-    const element = document.querySelectorAll(selector)[parseInt(index)];
-    if (element) {
-      element.click();
-      return true;
-    }
+  const element = validation.element;
+  
+  // Check if element is interactable
+  if (!window.__elementValidator.canInteract(element)) {
+    throw new Error(`Element ${ref} is not interactable`);
   }
   
-  throw new Error(`Invalid element reference: ${ref}`);
+  // Scroll element into view if needed
+  if (!window.__elementValidator.isVisible(element)) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Wait a bit for scroll to complete
+    return new Promise(resolve => {
+      setTimeout(() => {
+        element.click();
+        resolve(true);
+      }, 300);
+    });
+  }
+  
+  element.click();
+  return true;
 }
 
 function hoverElement(ref) {
-  let element = null;
-  
-  // Check if it's new ref format
-  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
-  if (refMatch) {
-    element = window.__elementTracker.getElementById(refMatch[1]);
-  } else {
-    // Fallback to old selector[index] format
-    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
-    if (selectorMatch) {
-      const [, selector, index] = selectorMatch;
-      element = document.querySelectorAll(selector)[parseInt(index)];
-    }
+  // Validate element exists
+  const validation = window.__elementValidator.validateElement(ref);
+  if (!validation.valid) {
+    throw new Error(`Hover validation failed: ${validation.error}`);
   }
   
-  if (element) {
-    const event = new MouseEvent('mouseover', {
-      view: window,
-      bubbles: true,
-      cancelable: true
-    });
-    element.dispatchEvent(event);
-    return true;
+  const element = validation.element;
+  
+  // Scroll element into view if needed
+  if (!window.__elementValidator.isVisible(element)) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
   
-  throw new Error(`Element not found: ${ref}`);
+  const event = new MouseEvent('mouseover', {
+    view: window,
+    bubbles: true,
+    cancelable: true
+  });
+  element.dispatchEvent(event);
+  return true;
 }
 
 function typeInElement(ref, text, submit) {
-  let element = null;
-  
-  // Check if it's new ref format
-  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
-  if (refMatch) {
-    element = window.__elementTracker.getElementById(refMatch[1]);
-  } else {
-    // Fallback to old selector[index] format
-    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
-    if (selectorMatch) {
-      const [, selector, index] = selectorMatch;
-      element = document.querySelectorAll(selector)[parseInt(index)];
+  // Validate element exists and is an input
+  const validation = window.__elementValidator.validateElement(ref, {
+    tagName: ['INPUT', 'TEXTAREA']
+  });
+  if (!validation.valid) {
+    // Check if it's a contenteditable element
+    const generalValidation = window.__elementValidator.validateElement(ref);
+    if (generalValidation.valid && generalValidation.element.contentEditable === 'true') {
+      const element = generalValidation.element;
+      element.focus();
+      element.textContent = text;
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
     }
+    throw new Error(`Type validation failed: ${validation.error}`);
   }
   
-  if (element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
-    element.focus();
-    element.value = text;
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    
-    if (submit) {
-      const form = element.closest('form');
-      if (form) {
-        form.submit();
-      } else {
-        element.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
-      }
-    }
-    return true;
+  const element = validation.element;
+  
+  // Check if input is not disabled or readonly
+  if (element.disabled) {
+    throw new Error(`Input element ${ref} is disabled`);
+  }
+  if (element.readOnly) {
+    throw new Error(`Input element ${ref} is readonly`);
   }
   
-  throw new Error(`Input element not found or not editable: ${ref}`);
+  // Scroll into view and focus
+  if (!window.__elementValidator.isVisible(element)) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  
+  element.focus();
+  element.value = text;
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+  
+  if (submit) {
+    const form = element.closest('form');
+    if (form) {
+      form.submit();
+    } else {
+      element.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+    }
+  }
+  return true;
 }
 
 function selectOptions(ref, values) {
-  let element = null;
+  // Validate element exists and is a select
+  const validation = window.__elementValidator.validateElement(ref, {
+    tagName: 'SELECT'
+  });
+  if (!validation.valid) {
+    throw new Error(`Select validation failed: ${validation.error}`);
+  }
   
-  // Check if it's new ref format
-  const refMatch = ref.match(/\[ref=(ref\d+)\]/);
-  if (refMatch) {
-    element = window.__elementTracker.getElementById(refMatch[1]);
-  } else {
-    // Fallback to old selector[index] format
-    const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
-    if (selectorMatch) {
-      const [, selector, index] = selectorMatch;
-      element = document.querySelectorAll(selector)[parseInt(index)];
+  const element = validation.element;
+  
+  // Check if select is not disabled
+  if (element.disabled) {
+    throw new Error(`Select element ${ref} is disabled`);
+  }
+  
+  // Scroll into view if needed
+  if (!window.__elementValidator.isVisible(element)) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  
+  // Validate values exist as options
+  const validValues = [];
+  const invalidValues = [];
+  
+  for (const value of values) {
+    const optionExists = Array.from(element.options).some(opt => opt.value === value);
+    if (optionExists) {
+      validValues.push(value);
+    } else {
+      invalidValues.push(value);
     }
   }
   
-  if (element && element.tagName === 'SELECT') {
-    for (const option of element.options) {
-      option.selected = values.includes(option.value);
-    }
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
+  if (invalidValues.length > 0) {
+    console.warn(`Select options not found: ${invalidValues.join(', ')}`);
   }
   
-  throw new Error(`Select element not found: ${ref}`);
+  if (validValues.length === 0) {
+    throw new Error(`None of the provided values exist as options in the select element`);
+  }
+  
+  // Select the valid options
+  for (const option of element.options) {
+    option.selected = validValues.includes(option.value);
+  }
+  
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+  return true;
 }
 
 function pressKey(key) {
