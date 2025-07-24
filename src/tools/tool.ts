@@ -4,7 +4,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { JsonSchema7Type } from "zod-to-json-schema";
 
-import type { Context } from "@/context";
+import type { Context } from "../context";
 
 export type ToolSchema = {
   name: string;

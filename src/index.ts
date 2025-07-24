@@ -3,14 +3,15 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { program } from "commander";
 
-import { appConfig } from "@repo/config/app.config";
+// Removed import of appConfig - will use local constant
 
-import type { Resource } from "@/resources/resource";
-import { createServerWithTools } from "@/server";
-import * as common from "@/tools/common";
-import * as custom from "@/tools/custom";
-import * as snapshot from "@/tools/snapshot";
-import type { Tool } from "@/tools/tool";
+import type { Resource } from "./resources/resource";
+import { createServerWithTools } from "./server";
+import * as common from "./tools/common";
+import * as custom from "./tools/custom";
+import * as snapshot from "./tools/snapshot";
+import * as tabs from "./tools/tabs";
+import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
 
@@ -26,6 +27,13 @@ const commonTools: Tool[] = [common.pressKey, common.wait];
 
 const customTools: Tool[] = [custom.getConsoleLogs, custom.screenshot];
 
+const tabTools: Tool[] = [
+  tabs.browser_tab_list,
+  tabs.browser_tab_select,
+  tabs.browser_tab_new,
+  tabs.browser_tab_close,
+];
+
 const snapshotTools: Tool[] = [
   common.navigate(true),
   common.goBack(true),
@@ -37,13 +45,14 @@ const snapshotTools: Tool[] = [
   snapshot.selectOption,
   ...commonTools,
   ...customTools,
+  ...tabTools,
 ];
 
 const resources: Resource[] = [];
 
 async function createServer(): Promise<Server> {
   return createServerWithTools({
-    name: appConfig.name,
+    name: "browsermcp-enhanced",
     version: packageJSON.version,
     tools: snapshotTools,
     resources,

@@ -1,6 +1,6 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-import { GetConsoleLogsTool, ScreenshotTool } from "@repo/types/mcp/tool";
+import { GetConsoleLogsTool, ScreenshotTool } from "../types/tool";
 
 import { Tool } from "./tool";
 
@@ -11,11 +11,11 @@ export const getConsoleLogs: Tool = {
     inputSchema: zodToJsonSchema(GetConsoleLogsTool.shape.arguments),
   },
   handle: async (context, _params) => {
-    const consoleLogs = await context.sendSocketMessage(
-      "browser_get_console_logs",
+    const response = await context.sendSocketMessage(
+      "console.get",
       {},
     );
-    const text: string = consoleLogs
+    const text: string = response.logs
       .map((log) => JSON.stringify(log))
       .join("\n");
     return {
@@ -31,15 +31,15 @@ export const screenshot: Tool = {
     inputSchema: zodToJsonSchema(ScreenshotTool.shape.arguments),
   },
   handle: async (context, _params) => {
-    const screenshot = await context.sendSocketMessage(
-      "browser_screenshot",
+    const response = await context.sendSocketMessage(
+      "screenshot.capture",
       {},
     );
     return {
       content: [
         {
           type: "image",
-          data: screenshot,
+          data: response.data,
           mimeType: "image/png",
         },
       ],

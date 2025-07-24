@@ -1,14 +1,15 @@
-import { createSocketMessageSender } from "@r2r/messaging/ws/sender";
+import { createSocketMessageSender } from "./messaging/ws/sender";
 import { WebSocket } from "ws";
 
-import { mcpConfig } from "@repo/config/mcp.config";
-import { MessagePayload, MessageType } from "@repo/messaging/types";
-import { SocketMessageMap } from "@repo/types/messages/ws";
+import { mcpConfig } from "./config/mcp.config";
+import { MessagePayload, MessageType, SocketMessageMap } from "./types/messages";
 
 const noConnectionMessage = `No connection to browser extension. In order to proceed, you must first connect a tab by clicking the Browser MCP extension icon in the browser toolbar and clicking the 'Connect' button.`;
 
 export class Context {
   private _ws: WebSocket | undefined;
+  private _tabs: Map<string, any> = new Map();
+  private _currentTabId: string | undefined;
 
   get ws(): WebSocket {
     if (!this._ws) {
@@ -23,6 +24,14 @@ export class Context {
 
   hasWs(): boolean {
     return !!this._ws;
+  }
+
+  get currentTabId(): string | undefined {
+    return this._currentTabId;
+  }
+
+  set currentTabId(tabId: string | undefined) {
+    this._currentTabId = tabId;
   }
 
   async sendSocketMessage<T extends MessageType<SocketMessageMap>>(

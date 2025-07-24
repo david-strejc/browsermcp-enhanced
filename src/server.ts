@@ -6,10 +6,10 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { Context } from "@/context";
-import type { Resource } from "@/resources/resource";
-import type { Tool } from "@/tools/tool";
-import { createWebSocketServer } from "@/ws";
+import { Context } from "./context";
+import type { Resource } from "./resources/resource";
+import type { Tool } from "./tools/tool";
+import { createWebSocketServer } from "./ws";
 
 type Options = {
   name: string;
