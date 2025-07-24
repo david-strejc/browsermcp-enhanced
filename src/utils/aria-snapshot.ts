@@ -1,25 +1,16 @@
-import { Context } from "@/context";
-import { ToolResult } from "@/tools/tool";
+import { Context } from "../context";
+import { ToolResult } from "../tools/tool";
 
 export async function captureAriaSnapshot(
   context: Context,
   status: string = "",
 ): Promise<ToolResult> {
-  const url = await context.sendSocketMessage("getUrl", undefined);
-  const title = await context.sendSocketMessage("getTitle", undefined);
-  const snapshot = await context.sendSocketMessage("browser_snapshot", {});
+  const response = await context.sendSocketMessage("snapshot.accessibility", {});
   return {
     content: [
       {
         type: "text",
-        text: `${status ? `${status}\n` : ""}
-- Page URL: ${url}
-- Page Title: ${title}
-- Page Snapshot
-\`\`\`yaml
-${snapshot}
-\`\`\`
-`,
+        text: status ? `${status}\n\n${response.snapshot}` : response.snapshot,
       },
     ],
   };

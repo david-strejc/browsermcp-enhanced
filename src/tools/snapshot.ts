@@ -33,7 +33,7 @@ export const click: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = ClickTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_click", validatedParams);
+    await context.sendSocketMessage("dom.click", { ref: validatedParams.ref });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [
@@ -55,7 +55,10 @@ export const drag: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = DragTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_drag", validatedParams);
+    await context.sendSocketMessage("dom.drag", { 
+      ref: validatedParams.ref, 
+      targetRef: validatedParams.targetRef 
+    });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [
@@ -77,7 +80,7 @@ export const hover: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = HoverTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_hover", validatedParams);
+    await context.sendSocketMessage("dom.hover", { ref: validatedParams.ref });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [
@@ -99,7 +102,11 @@ export const type: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = TypeTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_type", validatedParams);
+    await context.sendSocketMessage("dom.type", { 
+      ref: validatedParams.ref, 
+      text: validatedParams.text, 
+      submit: validatedParams.submit 
+    });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [
@@ -121,7 +128,10 @@ export const selectOption: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = SelectOptionTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("browser_select_option", validatedParams);
+    await context.sendSocketMessage("dom.select", { 
+      ref: validatedParams.ref, 
+      values: validatedParams.values 
+    });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [

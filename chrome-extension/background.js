@@ -218,38 +218,141 @@ messageHandlers.set('page.wait', async ({ time }) => {
 
 // Functions to inject into page
 function captureAccessibilitySnapshot() {
-  // Enhanced implementation with stable element IDs
+  // Enhanced implementation with stable element IDs and better formatting
+  function isVisible(element) {
+    if (element === document.body) return true;
+    
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    if (style.opacity === '0') return false;
+    
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
+    
+    return true;
+  }
+  
+  function getAccessibleName(element) {
+    // Priority order for accessible name
+    if (element.getAttribute('aria-label')) {
+      return element.getAttribute('aria-label');
+    }
+    
+    if (element.getAttribute('aria-labelledby')) {
+      const labelId = element.getAttribute('aria-labelledby');
+      const label = document.getElementById(labelId);
+      if (label) return label.textContent.trim();
+    }
+    
+    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT') {
+      const label = element.labels?.[0];
+      if (label) return label.textContent.trim();
+      if (element.placeholder) return element.placeholder;
+    }
+    
+    if (element.getAttribute('alt')) {
+      return element.getAttribute('alt');
+    }
+    
+    if (element.getAttribute('title')) {
+      return element.getAttribute('title');
+    }
+    
+    // For buttons and links, use text content
+    if (['BUTTON', 'A'].includes(element.tagName)) {
+      const text = element.textContent.trim();
+      if (text && text.length < 100) return text;
+    }
+    
+    // Default to text content but limit length
+    return element.textContent?.trim().substring(0, 60) || '';
+  }
+  
+  function getRole(element) {
+    // Use explicit role if available
+    if (element.getAttribute('role')) {
+      return element.getAttribute('role');
+    }
+    
+    // Map HTML elements to implicit roles
+    const tagName = element.tagName.toLowerCase();
+    const roleMap = {
+      'a': element.href ? 'link' : 'generic',
+      'button': 'button',
+      'input': element.type === 'submit' || element.type === 'button' ? 'button' : 'textbox',
+      'textarea': 'textbox',
+      'select': 'combobox',
+      'option': 'option',
+      'img': 'img',
+      'h1': 'heading',
+      'h2': 'heading',
+      'h3': 'heading',
+      'h4': 'heading',
+      'h5': 'heading',
+      'h6': 'heading',
+      'nav': 'navigation',
+      'main': 'main',
+      'header': 'banner',
+      'footer': 'contentinfo',
+      'aside': 'complementary',
+      'section': 'region',
+      'article': 'article',
+      'form': 'form',
+      'table': 'table',
+      'ul': 'list',
+      'ol': 'list',
+      'li': 'listitem'
+    };
+    
+    return roleMap[tagName] || tagName;
+  }
+  
   function traverse(element, depth = 0) {
-    // Skip hidden elements
-    if (!element.offsetParent && element.tagName !== 'BODY') {
+    // Skip invisible elements
+    if (!isVisible(element)) {
       return '';
     }
     
-    const role = element.getAttribute('role') || element.tagName.toLowerCase();
-    const name = element.getAttribute('aria-label') || 
-                 element.getAttribute('alt') || 
-                 element.textContent?.trim().substring(0, 100) || '';
-    
-    // Get stable element ID
+    const role = getRole(element);
+    const name = getAccessibleName(element);
     const elementId = window.__elementTracker.getElementId(element);
     
-    // Format: role "name" [ref=123]
-    let result = '  '.repeat(depth) + `${role} "${name}" [ref=${elementId}]`;
+    // Format similar to Playwright: role "name" [ref=123]
+    let result = '  '.repeat(depth) + `${role}`;
+    if (name) {
+      result += ` "${name}"`;
+    }
+    result += ` [ref=${elementId}]`;
     
-    // Add interactive elements' additional attributes
-    if (['button', 'a', 'input', 'select', 'textarea'].includes(element.tagName.toLowerCase())) {
-      const attrs = [];
-      if (element.type) attrs.push(`type="${element.type}"`);
-      if (element.href) attrs.push(`href="${element.href}"`);
-      if (element.value && element.tagName !== 'TEXTAREA') attrs.push(`value="${element.value}"`);
-      if (attrs.length > 0) {
-        result += ` {${attrs.join(', ')}}`;
-      }
+    // Add state information for interactive elements
+    const states = [];
+    if (element.disabled) states.push('disabled');
+    if (element.checked) states.push('checked');
+    if (element.selected) states.push('selected');
+    if (element.required) states.push('required');
+    if (element.readOnly) states.push('readonly');
+    if (states.length > 0) {
+      result += ` [${states.join(', ')}]`;
     }
     
-    // Traverse children
-    if (element.children.length > 0) {
-      for (const child of element.children) {
+    // Add additional context for specific elements
+    if (element.tagName === 'INPUT') {
+      result += ` {type: ${element.type}`;
+      if (element.value && element.type !== 'password') {
+        result += `, value: "${element.value.substring(0, 50)}"`;
+      }
+      result += `}`;
+    } else if (element.tagName === 'A' && element.href) {
+      result += ` {href: "${element.href}"}`;
+    } else if (element.tagName === 'IMG' && element.src) {
+      result += ` {src: "${element.src}"}`;
+    }
+    
+    // Skip traversing children for certain elements
+    const skipChildren = ['input', 'textarea', 'select', 'img', 'br', 'hr'];
+    if (!skipChildren.includes(element.tagName.toLowerCase())) {
+      const children = Array.from(element.children);
+      for (const child of children) {
         const childResult = traverse(child, depth + 1);
         if (childResult) {
           result += '\n' + childResult;
@@ -260,7 +363,9 @@ function captureAccessibilitySnapshot() {
     return result;
   }
   
-  return traverse(document.body);
+  // Add page context at the top
+  const pageInfo = `Page: ${document.title || 'Untitled'}\nURL: ${window.location.href}\n\n`;
+  return pageInfo + traverse(document.body);
 }
 
 function queryElements(selector, all) {
