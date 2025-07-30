@@ -217,6 +217,195 @@ messageHandlers.set('page.wait', async ({ time }) => {
   return {};
 });
 
+// Debugger handler instance
+const debuggerHandler = {
+  attached: false,
+  tabId: null,
+  data: {
+    console: [],
+    network: [],
+    errors: [],
+    performance: {}
+  },
+  maxEntries: 1000
+};
+
+// Debugger message handlers
+messageHandlers.set('debugger.attach', async ({ domains = ["console", "network", "performance", "runtime"] }) => {
+  if (debuggerHandler.attached) {
+    await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
+  }
+
+  debuggerHandler.tabId = activeTabId;
+  
+  return new Promise((resolve) => {
+    chrome.debugger.attach({ tabId: activeTabId }, "1.3", async () => {
+      if (chrome.runtime.lastError) {
+        resolve({ error: chrome.runtime.lastError.message });
+        return;
+      }
+      
+      debuggerHandler.attached = true;
+      
+      // Enable requested domains
+      try {
+        if (domains.includes("console") || domains.includes("runtime")) {
+          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Runtime.enable", {});
+        }
+        if (domains.includes("network")) {
+          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Network.enable", {});
+        }
+        if (domains.includes("performance")) {
+          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Performance.enable", {});
+        }
+        
+        // Always enable Log domain for errors
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Log.enable", {});
+        
+        resolve({ success: true });
+      } catch (error) {
+        resolve({ error: error.message });
+      }
+    });
+  });
+});
+
+messageHandlers.set('debugger.detach', async () => {
+  if (!debuggerHandler.attached) {
+    return { success: false, error: "Debugger not attached" };
+  }
+
+  return new Promise((resolve) => {
+    chrome.debugger.detach({ tabId: debuggerHandler.tabId }, () => {
+      debuggerHandler.attached = false;
+      debuggerHandler.tabId = null;
+      
+      // Keep only last 100 entries
+      debuggerHandler.data.console = debuggerHandler.data.console.slice(-100);
+      debuggerHandler.data.network = debuggerHandler.data.network.slice(-100);
+      debuggerHandler.data.errors = debuggerHandler.data.errors.slice(-100);
+      
+      resolve({ success: true });
+    });
+  });
+});
+
+messageHandlers.set('debugger.getData', async ({ type, limit = 50, filter }) => {
+  let data = [];
+
+  switch (type) {
+    case "console":
+      data = debuggerHandler.data.console;
+      break;
+    case "network":
+      data = debuggerHandler.data.network;
+      break;
+    case "errors":
+      data = debuggerHandler.data.errors;
+      break;
+    case "performance":
+      // Get fresh performance metrics
+      if (debuggerHandler.attached) {
+        try {
+          const metrics = await chrome.debugger.sendCommand(
+            { tabId: debuggerHandler.tabId }, 
+            "Performance.getMetrics", 
+            {}
+          );
+          const result = {};
+          metrics.metrics.forEach(metric => {
+            result[metric.name] = metric.value;
+          });
+          debuggerHandler.data.performance = result;
+        } catch (error) {
+          console.error("Failed to get performance metrics:", error);
+        }
+      }
+      return { data: debuggerHandler.data.performance };
+  }
+
+  // Apply filter if provided
+  if (filter && data.length > 0) {
+    data = data.filter(item => 
+      JSON.stringify(item).toLowerCase().includes(filter.toLowerCase())
+    );
+  }
+
+  // Apply limit
+  return { data: data.slice(-limit) };
+});
+
+// Debugger event listener
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (source.tabId !== debuggerHandler.tabId) return;
+
+  switch (method) {
+    case "Runtime.consoleAPICalled":
+      debuggerHandler.data.console.push({
+        type: params.type,
+        timestamp: new Date().toISOString(),
+        args: params.args.map(arg => {
+          if (arg.type === "string") return arg.value;
+          if (arg.type === "number") return arg.value;
+          if (arg.type === "boolean") return arg.value;
+          if (arg.type === "undefined") return undefined;
+          if (arg.type === "object" && arg.subtype === "null") return null;
+          return arg.description || arg.type;
+        }),
+        stackTrace: params.stackTrace ? params.stackTrace.callFrames
+          .map(f => `${f.functionName || '<anonymous>'} (${f.url}:${f.lineNumber}:${f.columnNumber})`)
+          .join('\n    ') : null
+      });
+      if (debuggerHandler.data.console.length > debuggerHandler.maxEntries) {
+        debuggerHandler.data.console = debuggerHandler.data.console.slice(-debuggerHandler.maxEntries);
+      }
+      break;
+    
+    case "Network.requestWillBeSent":
+      debuggerHandler.data.network.push({
+        id: params.requestId,
+        url: params.request.url,
+        method: params.request.method,
+        type: params.type,
+        timestamp: params.timestamp,
+        initiator: params.initiator,
+        headers: params.request.headers
+      });
+      if (debuggerHandler.data.network.length > debuggerHandler.maxEntries) {
+        debuggerHandler.data.network = debuggerHandler.data.network.slice(-debuggerHandler.maxEntries);
+      }
+      break;
+    
+    case "Network.responseReceived":
+      const request = debuggerHandler.data.network.find(r => r.id === params.requestId);
+      if (request) {
+        request.status = params.response.status;
+        request.statusText = params.response.statusText;
+        request.responseHeaders = params.response.headers;
+        request.size = params.response.encodedDataLength;
+        request.time = (params.timestamp - request.timestamp) * 1000; // Convert to ms
+      }
+      break;
+    
+    case "Runtime.exceptionThrown":
+      debuggerHandler.data.errors.push({
+        timestamp: new Date().toISOString(),
+        message: params.exceptionDetails.text,
+        url: params.exceptionDetails.url,
+        line: params.exceptionDetails.lineNumber,
+        column: params.exceptionDetails.columnNumber,
+        stack: params.exceptionDetails.stackTrace ? 
+          params.exceptionDetails.stackTrace.callFrames
+            .map(f => `${f.functionName || '<anonymous>'} (${f.url}:${f.lineNumber}:${f.columnNumber})`)
+            .join('\n    ') : null
+      });
+      if (debuggerHandler.data.errors.length > debuggerHandler.maxEntries) {
+        debuggerHandler.data.errors = debuggerHandler.data.errors.slice(-debuggerHandler.maxEntries);
+      }
+      break;
+  }
+});
+
 // Functions to inject into page
 function captureAccessibilitySnapshot(options = {}) {
   // Enhanced implementation with stable element IDs and better formatting

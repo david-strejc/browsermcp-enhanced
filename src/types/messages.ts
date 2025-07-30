@@ -118,6 +118,24 @@ export interface SocketMessageMap {
     request: { tabId?: string }; 
     response: { requests: NetworkRequest[] };
   };
+  
+  // Debugger operations
+  'debugger.attach': {
+    request: { domains?: string[] };
+    response: { success: boolean; error?: string };
+  };
+  'debugger.detach': {
+    request: {};
+    response: { success: boolean; error?: string };
+  };
+  'debugger.getData': {
+    request: { 
+      type: 'console' | 'network' | 'performance' | 'errors';
+      limit?: number;
+      filter?: string;
+    };
+    response: { data: any };
+  };
 }
 
 export type MessageType<T> = keyof T;

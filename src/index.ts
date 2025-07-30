@@ -11,6 +11,7 @@ import * as common from "./tools/common";
 import * as custom from "./tools/custom";
 import * as snapshot from "./tools/snapshot";
 import * as tabs from "./tools/tabs";
+import { debuggerTools } from "./tools/debugger";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -46,6 +47,7 @@ const snapshotTools: Tool[] = [
   ...commonTools,
   ...customTools,
   ...tabTools,
+  ...debuggerTools,
 ];
 
 const resources: Resource[] = [];
