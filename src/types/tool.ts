@@ -54,7 +54,10 @@ export const ScreenshotTool = z.object({
 export const SnapshotTool = z.object({
   name: z.literal("browser_snapshot"),
   description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with."),
-  arguments: z.object({}),
+  arguments: z.object({
+    level: z.enum(['minimal', 'full']).optional().describe("Snapshot detail level. 'minimal' shows only interactive elements (default), 'full' shows entire DOM"),
+    viewportOnly: z.boolean().optional().describe("Only include elements in viewport (default: true)")
+  }),
 });
 
 export const ClickTool = z.object({

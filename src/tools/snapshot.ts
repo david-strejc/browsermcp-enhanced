@@ -20,8 +20,12 @@ export const snapshot: Tool = {
     description: SnapshotTool.shape.description.value,
     inputSchema: zodToJsonSchema(SnapshotTool.shape.arguments),
   },
-  handle: async (context: Context) => {
-    return await captureAriaSnapshot(context);
+  handle: async (context: Context, params) => {
+    const validatedParams = SnapshotTool.shape.arguments.parse(params || {});
+    return await captureAriaSnapshot(context, "", {
+      level: validatedParams.level,
+      viewportOnly: validatedParams.viewportOnly
+    });
   },
 };
 

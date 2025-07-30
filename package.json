@@ -1,13 +1,29 @@
 {
-  "name": "@browsermcp/mcp",
-  "version": "0.1.3",
-  "description": "MCP server for browser automation using Browser MCP",
-  "author": "Browser MCP",
-  "homepage": "https://browsermcp.io",
-  "bugs": "https://github.com/browsermcp/mcp/issues",
+  "name": "@browsermcp/mcp-enhanced",
+  "version": "0.2.0",
+  "description": "Enhanced MCP server for browser automation with improved element selection, tab management, and token optimization",
+  "author": "BrowserMCP Enhanced Contributors",
+  "homepage": "https://github.com/browsermcp/mcp-enhanced",
+  "bugs": "https://github.com/browsermcp/mcp-enhanced/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/browsermcp/mcp-enhanced.git"
+  },
+  "keywords": [
+    "mcp",
+    "browser",
+    "automation",
+    "ai",
+    "claude",
+    "playwright",
+    "chrome",
+    "extension",
+    "tab-management",
+    "element-selection"
+  ],
   "type": "module",
   "bin": {
-    "mcp-server-browsermcp": "dist/index.js"
+    "mcp-server-browsermcp-enhanced": "dist/index.js"
   },
   "files": [
     "dist"

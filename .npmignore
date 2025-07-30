@@ -1,0 +1,33 @@
+# Source files
+src/
+tsconfig.json
+tsup.config.js
+
+# Chrome extension (published separately)
+chrome-extension/
+
+# Development files
+.git/
+.gitignore
+node_modules/
+*.log
+.DS_Store
+
+# Build artifacts not needed
+*.map
+
+# Test files
+test/
+tests/
+__tests__/
+*.test.js
+*.spec.js
+
+# Documentation source
+docs/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
