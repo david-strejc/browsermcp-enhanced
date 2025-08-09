@@ -4,27 +4,38 @@ window.__elementValidator = {
   validateElement(ref, expectedProperties = {}) {
     let element = null;
     
-    // Get element by ref
-    const refMatch = ref.match(/\[ref=(ref\d+)\]/);
-    if (refMatch) {
-      element = window.__elementTracker.getElementById(refMatch[1]);
+    // First try direct ref ID (e.g., "ref13")
+    if (ref.startsWith('ref')) {
+      element = window.__elementTracker.getElementById(ref);
       if (!element) {
         return {
           valid: false,
-          error: `Element with ref ${refMatch[1]} no longer exists in DOM`
+          error: `Element with ref ${ref} no longer exists in DOM`
         };
       }
     } else {
-      // Fallback for old selector format
-      const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
-      if (selectorMatch) {
-        const [, selector, index] = selectorMatch;
-        element = document.querySelectorAll(selector)[parseInt(index)];
+      // Try bracket format [ref=ref13]
+      const refMatch = ref.match(/\[ref=(ref\d+)\]/);
+      if (refMatch) {
+        element = window.__elementTracker.getElementById(refMatch[1]);
         if (!element) {
           return {
             valid: false,
-            error: `No element found matching selector ${selector} at index ${index}`
+            error: `Element with ref ${refMatch[1]} no longer exists in DOM`
           };
+        }
+      } else {
+        // Fallback for old selector format
+        const selectorMatch = ref.match(/(.+)\[(\d+)\]/);
+        if (selectorMatch) {
+          const [, selector, index] = selectorMatch;
+          element = document.querySelectorAll(selector)[parseInt(index)];
+          if (!element) {
+            return {
+              valid: false,
+              error: `No element found matching selector ${selector} at index ${index}`
+            };
+          }
         }
       }
     }

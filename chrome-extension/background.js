@@ -2,6 +2,28 @@
 let ws = null;
 let activeTabId = null;
 let messageHandlers = new Map();
+let reconnectTimer = null;
+let keepAliveTimer = null;
+
+// Update extension icon based on connection status
+function updateIcon(connected) {
+  const iconPath = connected ? {
+    "16": "icon-16-connected.png",
+    "48": "icon-48-connected.png",
+    "128": "icon-128-connected.png"
+  } : {
+    "16": "icon-16-disconnected.png",
+    "48": "icon-48-disconnected.png", 
+    "128": "icon-128-disconnected.png"
+  };
+  
+  // Update the icon
+  chrome.action.setIcon({ path: iconPath });
+  
+  // Also update badge text for additional clarity
+  chrome.action.setBadgeText({ text: connected ? '' : '!' });
+  chrome.action.setBadgeBackgroundColor({ color: connected ? '#4CAF50' : '#f44336' });
+}
 
 // Connect to MCP server
 function connectToMCP() {
@@ -9,10 +31,25 @@ function connectToMCP() {
     return;
   }
   
+  // Clear any existing reconnect timer
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  
   ws = new WebSocket('ws://localhost:8765');
   
   ws.onopen = () => {
     console.log('Connected to MCP server');
+    updateIcon(true);
+    
+    // Start keepalive ping every 30 seconds
+    if (keepAliveTimer) clearInterval(keepAliveTimer);
+    keepAliveTimer = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
+      }
+    }, 30000);
   };
   
   ws.onmessage = async (event) => {
@@ -47,12 +84,21 @@ function connectToMCP() {
   
   ws.onclose = () => {
     console.log('Disconnected from MCP server');
+    updateIcon(false);
+    
+    // Clear keepalive
+    if (keepAliveTimer) {
+      clearInterval(keepAliveTimer);
+      keepAliveTimer = null;
+    }
+    
     // Reconnect after 5 seconds
-    setTimeout(connectToMCP, 5000);
+    reconnectTimer = setTimeout(connectToMCP, 5000);
   };
   
   ws.onerror = (error) => {
     console.error('WebSocket error:', error);
+    updateIcon(false);
   };
 }
 
@@ -114,6 +160,20 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     throw new Error('No active tab');
   }
   
+  // Check if scripts are already injected by testing for __elementTracker
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__elementTracker !== 'undefined'
+  });
+  
+  // Only inject if not already present
+  if (!checkResult.result) {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['element-tracker.js', 'element-validator.js']
+    });
+  }
+  
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
     func: captureAccessibilitySnapshot,
@@ -139,6 +199,20 @@ messageHandlers.set('snapshot.query', async ({ selector, all }) => {
 });
 
 messageHandlers.set('dom.click', async ({ ref }) => {
+  // Check if scripts are already injected by testing for __elementTracker
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__elementTracker !== 'undefined'
+  });
+  
+  // Only inject if not already present
+  if (!checkResult.result) {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['element-tracker.js', 'element-validator.js']
+    });
+  }
+  
   await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
     func: clickElement,
@@ -157,6 +231,20 @@ messageHandlers.set('dom.hover', async ({ ref }) => {
 });
 
 messageHandlers.set('dom.type', async ({ ref, text, submit }) => {
+  // Check if scripts are already injected by testing for __elementTracker
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__elementTracker !== 'undefined'
+  });
+  
+  // Only inject if not already present
+  if (!checkResult.result) {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['element-tracker.js', 'element-validator.js']
+    });
+  }
+  
   await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
     func: typeInElement,
@@ -820,8 +908,41 @@ function getConsoleLogs() {
   return window.__consoleLogs || [];
 }
 
+// Initialize with disconnected icon
+updateIcon(false);
+
 // Initialize connection
 connectToMCP();
+
+// Chrome service worker keepalive
+// Service workers in Chrome get killed after 30 seconds of inactivity
+// This keeps it alive by setting an alarm
+chrome.alarms.create('keepAlive', { periodInMinutes: 0.25 }); // Every 15 seconds
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'keepAlive') {
+    // Check WebSocket connection
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket disconnected, attempting reconnect...');
+      connectToMCP();
+    }
+  }
+});
+
+// Handle messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'getStatus') {
+    sendResponse({ connected: ws && ws.readyState === WebSocket.OPEN });
+    return true;
+  } else if (request.type === 'connect') {
+    connectToMCP();
+    // Wait a bit for connection to establish
+    setTimeout(() => {
+      sendResponse({ connected: ws && ws.readyState === WebSocket.OPEN });
+    }, 500);
+    return true; // Keep the message channel open for async response
+  }
+});
 
 // Handle extension icon click
 chrome.action.onClicked.addListener((tab) => {
