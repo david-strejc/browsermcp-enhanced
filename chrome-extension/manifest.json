@@ -26,6 +26,7 @@
       "128": "icon-128.png"
     }
   },
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["<all_urls>"],

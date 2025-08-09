@@ -4,236 +4,382 @@
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-green)](https://developer.chrome.com/docs/extensions/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Enhanced Model Context Protocol (MCP) server for browser automation with improved element selection, tab management, and token optimization. Built on top of the original [BrowserMCP](https://github.com/browsermcp/mcp) with significant improvements for AI-powered browser interaction.
+🚀 **Advanced browser automation for AI agents** - A powerful Model Context Protocol (MCP) server that enables Claude and other AI assistants to interact with web browsers through a secure, token-optimized interface.
 
-## 🚀 Key Enhancements
+## ✨ Key Features
 
-### 1. **Stable Element Selection**
-- **Problem Solved**: AI was often selecting wrong elements due to position-based selectors
-- **Solution**: Persistent element IDs using WeakMap (`[ref=123]` instead of `button[2]`)
-- **Result**: Elements maintain stable references until page reload
+### 🎯 Smart Element Selection
+- **Persistent element references** using WeakMap-based tracking (`[ref123]` system)
+- **Intelligent element validation** before interactions
+- **Automatic element visibility checks**
+- No more brittle CSS selectors or position-based targeting
 
-### 2. **Tab Management**
-- Full tab control with 4 new tools:
-  - `browser_tab_list` - List all open tabs
-  - `browser_tab_select` - Switch between tabs
-  - `browser_tab_new` - Open new tabs
-  - `browser_tab_close` - Close tabs
+### 📊 Token Optimization (90% Reduction!)
+- **Scaffold Mode**: Reduces 58,000+ tokens to ~3,500 for complex sites
+- **Smart truncation** with continuation markers
+- **Viewport-focused** snapshots by default
+- **Progressive disclosure** with expand region tool
 
-### 3. **Token Optimization**
-- **70-90% reduction** in context size
-- Minimal snapshots showing only interactive elements
-- Viewport-only filtering by default
-- Configurable snapshot levels (minimal/full)
+### 🔒 Dual-Mode Code Execution
+- **Safe Mode** (default): Sandboxed API with limited, secure operations
+- **Unsafe Mode**: Full browser access for advanced users (with warnings)
+- **Configurable** via extension options or environment variables
 
-### 4. **Element Validation**
-- Pre-action validation ensures elements are:
-  - Visible and in viewport
-  - Not disabled or hidden
-  - Correct element type for action
-  - Actually interactable
+### 🎛️ Complete Browser Control
+- **Tab management** (list, switch, open, close)
+- **Network monitoring** and request inspection
+- **Console log** capture
+- **Screenshot** generation
+- **Debugger integration** for advanced analysis
+
+### 🔧 Developer-Friendly
+- **TypeScript** throughout
+- **Chrome Extension Manifest V3**
+- **WebSocket** for real-time communication
+- **Comprehensive error handling**
 
 ## 📦 Installation
 
 ### Prerequisites
-- Node.js 18+
-- Chrome browser
-- Claude Desktop or VS Code with MCP support
+- Node.js 18+ and npm
+- Chrome or Chromium browser
+- Claude Desktop app (or any MCP-compatible client)
 
-### Quick Install
+### Platform-Specific Instructions
 
-1. **Install the MCP Server**:
-   ```bash
-   # Clone the repository
-   git clone https://github.com/yourusername/browsermcp-enhanced.git
-   cd browsermcp-enhanced
-   
-   # Install dependencies
-   npm install
-   
-   # Build the server
-   npm run build
-   
-   # Install locally
-   npm link
-   ```
+<details>
+<summary><b>🐧 Linux / macOS</b></summary>
 
-2. **Configure Claude Desktop**:
-   
-   Add to `~/.claude/mcp_servers.json`:
-   ```json
-   {
-     "mcpServers": {
-       "browsermcp": {
-         "command": "npx",
-         "args": ["@browsermcp/mcp-enhanced"]
-       }
-     }
-   }
-   ```
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/browsermcp-enhanced.git
+cd browsermcp-enhanced
 
-3. **Install Chrome Extension**:
-   - Open Chrome and go to `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select the `chrome-extension` folder
+# 2. Install dependencies
+npm install
 
-## 🛠️ Usage
+# 3. Build the project
+npm run build
 
-### Basic Browser Control
-```typescript
-// Navigate to a page
-await use_mcp_tool("browsermcp", "browser_navigate", {
-  url: "https://example.com"
+# 4. Create installation directory
+mkdir -p ~/.local/lib/browsermcp-enhanced
+
+# 5. Copy files
+cp -r dist ~/.local/lib/browsermcp-enhanced/
+cp -r chrome-extension ~/.local/lib/browsermcp-enhanced/
+cp package.json ~/.local/lib/browsermcp-enhanced/
+cp -r node_modules ~/.local/lib/browsermcp-enhanced/
+
+# 6. Configure MCP server (see Configuration section)
+```
+</details>
+
+<details>
+<summary><b>🪟 Windows</b></summary>
+
+```powershell
+# 1. Clone the repository
+git clone https://github.com/yourusername/browsermcp-enhanced.git
+cd browsermcp-enhanced
+
+# 2. Install dependencies
+npm install
+
+# 3. Build the project
+npm run build
+
+# 4. Create installation directory
+mkdir -Force "$env:LOCALAPPDATA\browsermcp-enhanced"
+
+# 5. Copy files
+xcopy /E /Y dist "$env:LOCALAPPDATA\browsermcp-enhanced\dist\"
+xcopy /E /Y chrome-extension "$env:LOCALAPPDATA\browsermcp-enhanced\chrome-extension\"
+copy package.json "$env:LOCALAPPDATA\browsermcp-enhanced\"
+xcopy /E /Y node_modules "$env:LOCALAPPDATA\browsermcp-enhanced\node_modules\"
+
+# 6. Configure MCP server (see Configuration section)
+```
+
+**Note**: On Windows, you'll need to adjust paths in the MCP configuration to use Windows-style paths.
+</details>
+
+### Chrome Extension Installation
+
+1. Open Chrome and navigate to `chrome://extensions`
+2. Enable **Developer mode** (toggle in top right)
+3. Click **Load unpacked**
+4. Select the `chrome-extension` folder:
+   - Linux/macOS: `~/.local/lib/browsermcp-enhanced/chrome-extension`
+   - Windows: `%LOCALAPPDATA%\browsermcp-enhanced\chrome-extension`
+5. The extension icon should appear in your toolbar
+
+### MCP Server Configuration
+
+Add to your Claude Desktop configuration file:
+
+**Linux/macOS**: `~/.claude/mcp_servers.json`
+**Windows**: `%APPDATA%\Claude\mcp_servers.json`
+
+```json
+{
+  "mcpServers": {
+    "browsermcp": {
+      "command": "node",
+      "args": ["/home/user/.local/lib/browsermcp-enhanced/dist/index.js"],
+      "env": {
+        "BROWSERMCP_ENHANCED": "true",
+        "BROWSERMCP_UNSAFE_MODE": "false"
+      }
+    }
+  }
+}
+```
+
+**Windows users**: Replace the path with:
+```json
+"args": ["%LOCALAPPDATA%\\browsermcp-enhanced\\dist\\index.js"]
+```
+
+## 🛠️ Available Tools
+
+### Navigation & Basic Control
+
+| Tool | Description |
+|------|-------------|
+| `browser_navigate` | Navigate to a URL |
+| `browser_go_back` | Go back to the previous page |
+| `browser_go_forward` | Go forward to the next page |
+| `browser_wait` | Wait for specified time in seconds |
+| `browser_press_key` | Press a keyboard key |
+
+### Page Interaction
+
+| Tool | Description |
+|------|-------------|
+| `browser_snapshot` | Capture page snapshot (supports scaffold mode) |
+| `browser_click` | Click on an element |
+| `browser_hover` | Hover over an element |
+| `browser_type` | Type text into an input field |
+| `browser_select_option` | Select option(s) in a dropdown |
+| `browser_drag` | Drag element to another element |
+
+### Tab Management
+
+| Tool | Description |
+|------|-------------|
+| `browser_tab_list` | List all open browser tabs |
+| `browser_tab_select` | Select a tab by index |
+| `browser_tab_new` | Open a new tab |
+| `browser_tab_close` | Close a tab |
+
+### Advanced Features
+
+| Tool | Description |
+|------|-------------|
+| `browser_execute_js` | Execute JavaScript code (safe/unsafe modes) |
+| `browser_common_operation` | Pre-built operations (hide popups, extract data, etc.) |
+| `browser_expand_region` | Expand a specific region with token budget |
+| `browser_query_elements` | Query elements by selector, text, or proximity |
+| `browser_get_console_logs` | Get console logs from the browser |
+| `browser_screenshot` | Take a screenshot of the current page |
+
+### Debugger Tools
+
+| Tool | Description |
+|------|-------------|
+| `browser_debugger_attach` | Attach debugger to tab |
+| `browser_debugger_detach` | Detach debugger from tab |
+| `browser_debugger_get_data` | Get debugging data (console, network, errors) |
+
+## 🏗️ Architecture
+
+```
+┌─────────────┐     WebSocket      ┌──────────────┐     Chrome API    ┌──────────┐
+│   Claude    │◄──────────────────►│  MCP Server  │◄─────────────────►│  Chrome  │
+│   Desktop   │                    │  (Node.js)   │                   │Extension │
+└─────────────┘                    └──────────────┘                   └──────────┘
+                                           │                                 │
+                                           │                                 ▼
+                                           │                          ┌──────────┐
+                                           └─────────────────────────►│   Web    │
+                                            Message Passing           │   Page   │
+                                                                      └──────────┘
+```
+
+### Components
+
+1. **MCP Server** (`src/index.ts`)
+   - Handles tool registration and Claude communication
+   - Manages WebSocket connections to Chrome extension
+   - Processes tool requests and responses
+
+2. **Chrome Extension**
+   - **Background Script** (`background.js`): WebSocket client, message routing
+   - **Content Scripts**: DOM interaction, element tracking
+   - **Options Page**: User configuration interface
+
+3. **Element Tracking System**
+   - `element-tracker.js`: WeakMap-based persistent references
+   - `element-validator.js`: Pre-action validation
+   - `code-executor.js`: Sandboxed JavaScript execution
+
+## ⚙️ Configuration
+
+### Extension Options
+
+Access via Chrome: Extension icon → Right-click → Options
+
+- **Unsafe Mode**: Toggle between safe (sandboxed) and unsafe (full access) code execution
+- **Server URL**: WebSocket server address (default: `ws://localhost:8765`)
+- **Logging**: Enable/disable execution logging
+- **Confirmation**: Require confirmation for unsafe operations
+
+### Environment Variables
+
+Set in `mcp_servers.json`:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `BROWSERMCP_ENHANCED` | Enable enhanced features | `true` |
+| `BROWSERMCP_UNSAFE_MODE` | Default code execution mode | `false` |
+
+## 🔒 Security
+
+### Safe Mode (Default)
+- Limited API with sandboxed functions
+- No access to cookies, storage, or network
+- No Chrome extension APIs
+- Perfect for general automation
+
+### Unsafe Mode
+- Full access to window, document, fetch
+- Complete Chrome API access
+- Use only with trusted code
+- Requires explicit enabling
+
+See [UNSAFE_MODE.md](./UNSAFE_MODE.md) for detailed security documentation.
+
+## 📝 Usage Examples
+
+### Basic Navigation
+```javascript
+// Navigate to a website
+await browser_navigate({ url: "https://example.com" });
+
+// Take a snapshot
+await browser_snapshot({ level: "minimal" });
+
+// Click a button
+await browser_click({ ref: "ref123", element: "Submit button" });
+```
+
+### Scaffold Mode for Large Sites
+```javascript
+// Get ultra-minimal snapshot (3-4k tokens instead of 58k+)
+await browser_snapshot({ mode: "scaffold" });
+
+// Expand specific region
+await browser_expand_region({ 
+  ref: "ref45", 
+  maxTokens: 1000,
+  depth: 2 
+});
+```
+
+### Code Execution
+```javascript
+// Safe mode (default)
+await browser_execute_js({ 
+  code: "return api.getText('h1');" 
 });
 
-// Take a minimal snapshot (token-optimized)
-await use_mcp_tool("browsermcp", "browser_snapshot", {
-  level: "minimal",      // Only interactive elements
-  viewportOnly: true     // Only visible content
-});
-
-// Click using stable element reference
-await use_mcp_tool("browsermcp", "browser_click", {
-  ref: "ref123",
-  element: "Submit button"
+// Unsafe mode (when enabled)
+await browser_execute_js({ 
+  code: "return document.cookie;",
+  unsafe: true 
 });
 ```
 
 ### Tab Management
-```typescript
+```javascript
 // List all tabs
-const tabs = await use_mcp_tool("browsermcp", "browser_tab_list", {});
+const tabs = await browser_tab_list();
 
 // Open new tab
-await use_mcp_tool("browsermcp", "browser_tab_new", {
-  url: "https://google.com"
-});
+await browser_tab_new({ url: "https://google.com" });
 
-// Switch to tab by index
-await use_mcp_tool("browsermcp", "browser_tab_select", {
-  index: 2
-});
+// Switch to tab
+await browser_tab_select({ index: 2 });
 ```
 
-### Advanced Features
-```typescript
-// Full snapshot when needed
-await use_mcp_tool("browsermcp", "browser_snapshot", {
-  level: "full"  // Complete DOM structure
-});
+## 🧪 Testing
 
-// Type with auto-submit
-await use_mcp_tool("browsermcp", "browser_type", {
-  ref: "ref45",
-  element: "Search input",
-  text: "MCP tools",
-  submit: true  // Press Enter after typing
-});
+Run the test suite:
+
+```bash
+# Basic tests
+npm test
+
+# Scaffold mode test
+node test-scaffold.js
+
+# Code execution test
+node test-code-execution.js
+
+# Full test suite
+./run-tests.sh
 ```
-
-## 🔧 Configuration
-
-### Environment Variables
-- `BROWSERMCP_ENHANCED=true` - Enable enhanced features
-- `DEBUG=browsermcp:*` - Enable debug logging
-
-### Snapshot Options
-| Option | Values | Default | Description |
-|--------|--------|---------|-------------|
-| `level` | `minimal`, `full` | `minimal` | Amount of DOM to capture |
-| `viewportOnly` | `true`, `false` | `true` | Only capture visible elements |
-
-## 🏗️ Architecture
-
-### Components
-1. **MCP Server** (`src/`) - Handles MCP protocol and tool definitions
-2. **Chrome Extension** (`chrome-extension/`) - Browser automation via Chrome APIs
-3. **WebSocket Bridge** - Real-time communication between server and extension
-
-### Element ID System
-```javascript
-// Element tracking in extension
-window.__elementTracker = {
-  elementToId: new WeakMap(),  // DOM Element → ID
-  idToElement: new Map(),      // ID → WeakRef<Element>
-  nextId: 1,
-  
-  getElementId(element) {
-    // Returns stable ID like "ref123"
-  }
-};
-```
-
-## 📊 Performance Improvements
-
-### Token Usage Comparison
-| Snapshot Type | Original | Enhanced | Reduction |
-|---------------|----------|----------|-----------|
-| Simple page | ~5,000 | ~500 | 90% |
-| Complex page | ~50,000 | ~5,000 | 90% |
-| With tables | ~20,000 | ~1,500 | 92.5% |
-
-### Why It Matters
-- Faster AI responses
-- Larger context available for other tasks
-- Reduced API costs
-- Better performance on complex pages
 
 ## 🐛 Troubleshooting
 
-### Extension Issues
-1. **Elements not found**: Ensure enhanced extension is installed (check version 1.1.0)
-2. **Connection failed**: Restart Chrome and Claude Desktop
-3. **Wrong elements selected**: Clear cache and reload page
+### Extension shows "Disconnected"
+1. Ensure MCP server is running (restart Claude)
+2. Check WebSocket connection on port 8765
+3. Verify Chrome extension is loaded
+4. Check console for errors
 
-### Server Issues
-1. **Tools not appearing**: Restart Claude Desktop after config changes
-2. **WebSocket errors**: Check if port 8765 is available
-3. **Permission denied**: Ensure Chrome extension has proper permissions
+### "Invalid element reference"
+- Page may have reloaded, references are reset
+- Element may have been removed from DOM
+- Try capturing a fresh snapshot
+
+### Token limit issues
+- Use scaffold mode for large sites
+- Enable viewport-only snapshots
+- Use query_elements to find specific items
+
+### Unsafe mode not working
+1. Check extension options page
+2. Verify `BROWSERMCP_UNSAFE_MODE` in config
+3. Restart Claude after changes
+4. Check console for security warnings
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please:
+
 1. Fork the repository
 2. Create a feature branch
-3. Add tests for new features
-4. Submit a pull request
-
-### Development Setup
-```bash
-# Install dev dependencies
-npm install
-
-# Run in development mode
-npm run dev
-
-# Run tests
-npm test
-
-# Build for production
-npm run build
-```
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) file
+MIT License - See [LICENSE](./LICENSE) file for details
 
-## 🙏 Credits
+## 🙏 Acknowledgments
 
-- Based on [BrowserMCP](https://github.com/browsermcp/mcp) 
-- Originally adapted from [Playwright MCP](https://github.com/microsoft/playwright-mcp)
-- Enhanced by the community
+- Original [BrowserMCP](https://github.com/browsermcp/mcp) project
+- [Model Context Protocol](https://github.com/modelcontextprotocol) by Anthropic
+- Chrome Extension development community
 
-## 📈 Roadmap
+## 🔗 Links
 
-- [ ] Screenshot with element bounds overlay
-- [ ] Network request monitoring
-- [ ] Cookie management
-- [ ] Multi-browser support (Firefox, Safari)
-- [ ] Recording and replay functionality
-- [ ] Visual regression testing
+- [GitHub Repository](https://github.com/yourusername/browsermcp-enhanced)
+- [Issue Tracker](https://github.com/yourusername/browsermcp-enhanced/issues)
+- [MCP Documentation](https://github.com/modelcontextprotocol/docs)
 
 ---
 
-**Note**: This is an enhanced version focusing on reliability and efficiency for AI-powered browser automation. For the original version, see [BrowserMCP](https://github.com/browsermcp/mcp).
+**Built with ❤️ for the AI automation community**

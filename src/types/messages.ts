@@ -93,7 +93,7 @@ export interface SocketMessageMap {
     response: { success: boolean };
   };
   
-  // JavaScript execution
+  // JavaScript execution (legacy)
   'js.evaluate': { 
     request: { 
       expression: string; 
@@ -101,6 +101,16 @@ export interface SocketMessageMap {
       tabId?: string;
     }; 
     response: { result: any; error?: string };
+  };
+  
+  // Secure code execution with sandboxed API
+  'js.execute': {
+    request: {
+      code: string;
+      timeout?: number;
+      unsafe?: boolean;  // Override default mode
+    };
+    response: { result: any; error?: string; mode?: string };
   };
   
   // Dialog handling
@@ -117,6 +127,26 @@ export interface SocketMessageMap {
   'network.getRequests': { 
     request: { tabId?: string }; 
     response: { requests: NetworkRequest[] };
+  };
+  
+  // Scaffold and query operations
+  'dom.expand': {
+    request: { 
+      ref: string;
+      maxTokens?: number;
+      depth?: number;
+      filter?: 'all' | 'interactive' | 'text';
+    };
+    response: { expansion: string };
+  };
+  'dom.query': {
+    request: {
+      selector?: string;
+      containing?: string;
+      nearRef?: string;
+      limit?: number;
+    };
+    response: { results: string };
   };
   
   // Debugger operations

@@ -12,6 +12,8 @@ import * as custom from "./tools/custom";
 import * as snapshot from "./tools/snapshot";
 import * as tabs from "./tools/tabs";
 import { debuggerTools } from "./tools/debugger";
+import { expandRegion, queryElements } from "./tools/scaffold";
+import { executeJS, commonOperations } from "./tools/code-execution";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -35,6 +37,16 @@ const tabTools: Tool[] = [
   tabs.browser_tab_close,
 ];
 
+const scaffoldTools: Tool[] = [
+  expandRegion,
+  queryElements,
+];
+
+const codeExecutionTools: Tool[] = [
+  executeJS,
+  commonOperations,
+];
+
 const snapshotTools: Tool[] = [
   common.navigate(true),
   common.goBack(true),
@@ -48,6 +60,8 @@ const snapshotTools: Tool[] = [
   ...customTools,
   ...tabTools,
   ...debuggerTools,
+  ...scaffoldTools,
+  ...codeExecutionTools,
 ];
 
 const resources: Resource[] = [];

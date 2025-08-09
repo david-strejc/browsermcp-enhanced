@@ -5,6 +5,23 @@ let messageHandlers = new Map();
 let reconnectTimer = null;
 let keepAliveTimer = null;
 
+// Configuration
+let extensionConfig = {
+  unsafeMode: false,  // Default to safe mode
+  serverUrl: 'ws://localhost:8765'
+};
+
+// Load configuration from storage
+chrome.storage.local.get(['unsafeMode', 'serverUrl'], (result) => {
+  if (result.unsafeMode !== undefined) {
+    extensionConfig.unsafeMode = result.unsafeMode;
+    console.log('Loaded unsafe mode setting:', extensionConfig.unsafeMode);
+  }
+  if (result.serverUrl) {
+    extensionConfig.serverUrl = result.serverUrl;
+  }
+});
+
 // Update extension icon based on connection status
 function updateIcon(connected) {
   const iconPath = connected ? {
@@ -172,6 +189,15 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
       target: { tabId: activeTabId },
       files: ['element-tracker.js', 'element-validator.js']
     });
+  }
+  
+  // Check for scaffold mode
+  if (options.mode === 'scaffold') {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: captureScaffoldSnapshot
+    });
+    return { snapshot: result.result };
   }
   
   const [result] = await chrome.scripting.executeScript({
@@ -493,6 +519,232 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       break;
   }
 });
+
+// Token estimation helper
+function estimateTokens(text) {
+  // Rough estimate: ~4 chars per token
+  return Math.ceil((text || '').length / 4);
+}
+
+// Capture ultra-minimal scaffold view
+function captureScaffoldSnapshot() {
+  const landmarks = [];
+  
+  // Find major landmarks
+  const selectors = [
+    'header, [role="banner"]',
+    'nav, [role="navigation"]', 
+    'main, [role="main"]',
+    'aside, [role="complementary"]',
+    'footer, [role="contentinfo"]',
+    'section[id], section[class*="content"]',
+    'div[class*="container"]:has(a, button)'
+  ];
+  
+  selectors.forEach(selector => {
+    document.querySelectorAll(selector).forEach(element => {
+      if (!element.dataset.scaffoldSeen) {
+        element.dataset.scaffoldSeen = 'true';
+        
+        // Count interactive elements
+        const interactive = element.querySelectorAll('a, button, input, select, textarea, [role="button"], [onclick]');
+        
+        // Get preview text (first few interactive elements)
+        const preview = Array.from(interactive)
+          .slice(0, 5)
+          .map(el => {
+            const text = el.textContent || el.value || el.placeholder || '';
+            return text.trim().substring(0, 20);
+          })
+          .filter(Boolean)
+          .join(', ');
+        
+        // Get bounds
+        const rect = element.getBoundingClientRect();
+        
+        landmarks.push({
+          ref: window.__elementTracker.getElementId(element),
+          type: element.tagName.toLowerCase(),
+          role: element.getAttribute('role') || element.tagName.toLowerCase(),
+          class: element.className ? element.className.substring(0, 50) : '',
+          interactiveCount: interactive.length,
+          preview: preview + (interactive.length > 5 ? '...' : ''),
+          visible: rect.top < window.innerHeight && rect.bottom > 0,
+          bounds: {
+            top: Math.round(rect.top),
+            left: Math.round(rect.left),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          }
+        });
+      }
+    });
+  });
+  
+  // Clean up markers
+  document.querySelectorAll('[data-scaffold-seen]').forEach(el => {
+    delete el.dataset.scaffoldSeen;
+  });
+  
+  // Build scaffold output
+  let output = `Page: ${document.title || 'Untitled'}\n`;
+  output += `URL: ${window.location.href}\n`;
+  output += `[Scaffold View - ${landmarks.length} regions]\n\n`;
+  
+  landmarks.forEach(landmark => {
+    output += `${landmark.type} [ref=${landmark.ref}]`;
+    if (landmark.role !== landmark.type) {
+      output += ` role="${landmark.role}"`;
+    }
+    if (!landmark.visible) {
+      output += ` [off-screen]`;
+    }
+    output += `\n`;
+    output += `  Interactive: ${landmark.interactiveCount} elements\n`;
+    if (landmark.preview) {
+      output += `  Preview: "${landmark.preview}"\n`;
+    }
+    output += `  Position: ${landmark.bounds.left},${landmark.bounds.top} (${landmark.bounds.width}x${landmark.bounds.height})\n`;
+    output += '\n';
+  });
+  
+  return output;
+}
+
+// Expand specific region with token budget
+function expandRegion(refId, options = {}) {
+  const maxTokens = options.maxTokens || 5000;
+  const depth = options.depth || 2;
+  const filter = options.filter || 'all'; // all, interactive, text
+  
+  const element = window.__elementTracker.getElementById(refId);
+  if (!element) {
+    return `Error: Element with ref ${refId} not found`;
+  }
+  
+  let output = `Expanding region [ref=${refId}]:\n\n`;
+  let tokenCount = estimateTokens(output);
+  const tokenBudget = maxTokens;
+  
+  function traverse(el, currentDepth, indent = '') {
+    if (currentDepth > depth || tokenCount > tokenBudget) {
+      return;
+    }
+    
+    // Skip if not matching filter
+    if (filter === 'interactive') {
+      const isInteractive = el.matches('a, button, input, select, textarea, [role="button"], [onclick]');
+      if (!isInteractive && el.querySelectorAll('a, button, input, select, textarea').length === 0) {
+        return;
+      }
+    }
+    
+    const role = el.getAttribute('role') || el.tagName.toLowerCase();
+    const text = el.textContent?.trim().substring(0, 100) || '';
+    const elementRef = window.__elementTracker.getElementId(el);
+    
+    let line = `${indent}${role} [ref=${elementRef}]`;
+    
+    // Add specific attributes for interactive elements
+    if (el.tagName === 'A') {
+      line += ` {href: "${el.href}"}`;
+    } else if (el.tagName === 'INPUT') {
+      line += ` {type: ${el.type}, value: "${el.value?.substring(0, 50) || ''}"}`;
+    } else if (el.tagName === 'BUTTON') {
+      line += ` "${text}"`;
+    }
+    
+    line += '\n';
+    
+    // Check if adding this would exceed budget
+    const lineTokens = estimateTokens(line);
+    if (tokenCount + lineTokens > tokenBudget) {
+      output += indent + '[... truncated due to token limit ...]\n';
+      tokenCount = tokenBudget + 1;
+      return;
+    }
+    
+    output += line;
+    tokenCount += lineTokens;
+    
+    // Traverse children
+    if (currentDepth < depth) {
+      const children = Array.from(el.children);
+      for (const child of children) {
+        traverse(child, currentDepth + 1, indent + '  ');
+        if (tokenCount > tokenBudget) break;
+      }
+    }
+  }
+  
+  traverse(element, 0);
+  
+  output += `\n[Tokens used: ~${tokenCount}/${maxTokens}]\n`;
+  return output;
+}
+
+// Query elements by various criteria
+function queryElements(options = {}) {
+  const { selector = '*', containing = '', nearRef = null, limit = 20 } = options;
+  
+  let elements = Array.from(document.querySelectorAll(selector));
+  
+  // Filter by text content
+  if (containing) {
+    const searchText = containing.toLowerCase();
+    elements = elements.filter(el => {
+      const text = (el.textContent || el.value || el.placeholder || '').toLowerCase();
+      return text.includes(searchText);
+    });
+  }
+  
+  // Sort by proximity to reference element
+  if (nearRef) {
+    const refElement = window.__elementTracker.getElementById(nearRef);
+    if (refElement) {
+      const refRect = refElement.getBoundingClientRect();
+      const refX = refRect.left + refRect.width / 2;
+      const refY = refRect.top + refRect.height / 2;
+      
+      elements.sort((a, b) => {
+        const aRect = a.getBoundingClientRect();
+        const aX = aRect.left + aRect.width / 2;
+        const aY = aRect.top + aRect.height / 2;
+        const aDist = Math.sqrt(Math.pow(aX - refX, 2) + Math.pow(aY - refY, 2));
+        
+        const bRect = b.getBoundingClientRect();
+        const bX = bRect.left + bRect.width / 2;
+        const bY = bRect.top + bRect.height / 2;
+        const bDist = Math.sqrt(Math.pow(bX - refX, 2) + Math.pow(bY - refY, 2));
+        
+        return aDist - bDist;
+      });
+    }
+  }
+  
+  // Limit results
+  elements = elements.slice(0, limit);
+  
+  // Format output
+  let output = `Found ${elements.length} elements:\n\n`;
+  
+  elements.forEach(el => {
+    const ref = window.__elementTracker.getElementId(el);
+    const role = el.tagName.toLowerCase();
+    const text = (el.textContent || el.value || '').trim().substring(0, 100);
+    
+    output += `${role} [ref=${ref}]`;
+    if (text) {
+      output += ` "${text}"`;
+    }
+    if (el.href) {
+      output += ` {href: "${el.href}"}`;
+    }
+    output += '\n';
+  });
+  
+  return output;
+}
 
 // Functions to inject into page
 function captureAccessibilitySnapshot(options = {}) {
@@ -941,6 +1193,159 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ connected: ws && ws.readyState === WebSocket.OPEN });
     }, 500);
     return true; // Keep the message channel open for async response
+  }
+});
+
+// Code execution handler
+messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }) => {
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+  
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  // Check if code executor is injected
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__codeExecutorReady !== 'undefined'
+  });
+  
+  if (!checkResult.result) {
+    // Inject code executor
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['code-executor.js']
+    });
+    
+    // Wait a bit for initialization
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  // Generate execution ID
+  const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  return new Promise((resolve, reject) => {
+    // Set timeout for execution
+    const timeoutId = setTimeout(() => {
+      chrome.tabs.sendMessage(activeTabId, {
+        type: 'execute.abort',
+        executionId: executionId
+      });
+      reject(new Error(`Code execution timeout after ${timeout}ms`));
+    }, timeout + 1000); // Add 1s buffer
+    
+    // Determine unsafe mode: explicit parameter > config > default (false)
+    const useUnsafeMode = unsafe !== null ? unsafe : extensionConfig.unsafeMode;
+    
+    if (useUnsafeMode) {
+      console.warn('⚠️ Executing code in UNSAFE mode');
+    }
+    
+    // Execute code
+    chrome.tabs.sendMessage(activeTabId, {
+      type: 'execute.code',
+      code: code,
+      timeout: timeout,
+      executionId: executionId,
+      unsafe: useUnsafeMode
+    }, response => {
+      clearTimeout(timeoutId);
+      
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (response.success) {
+        resolve({ result: response.result });
+      } else {
+        reject(new Error(response.error || 'Execution failed'));
+      }
+    });
+  });
+});
+
+// New message handlers for scaffold features
+messageHandlers.set('dom.expand', async ({ ref, maxTokens = 5000, depth = 2, filter = 'all' }) => {
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+  
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  // Ensure scripts are injected
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__elementTracker !== 'undefined'
+  });
+  
+  if (!checkResult.result) {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['element-tracker.js', 'element-validator.js']
+    });
+  }
+  
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: expandRegion,
+    args: [ref, { maxTokens, depth, filter }]
+  });
+  
+  return { expansion: result.result };
+});
+
+messageHandlers.set('dom.query', async ({ selector = '*', containing = '', nearRef = null, limit = 20 }) => {
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+  
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  // Ensure scripts are injected
+  const [checkResult] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: () => typeof window.__elementTracker !== 'undefined'
+  });
+  
+  if (!checkResult.result) {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['element-tracker.js', 'element-validator.js']
+    });
+  }
+  
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: queryElements,
+    args: [{ selector, containing, nearRef, limit }]
+  });
+  
+  return { results: result.result };
+});
+
+// Handle settings updates from options page
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'settings.updated') {
+    extensionConfig = { ...extensionConfig, ...message.settings };
+    console.log('Settings updated:', extensionConfig);
+    
+    // Store in local storage
+    chrome.storage.local.set(message.settings);
+    
+    // Reconnect if server URL changed
+    if (message.settings.serverUrl && message.settings.serverUrl !== extensionConfig.serverUrl) {
+      if (ws) {
+        ws.close();
+      }
+      connectToMCP();
+    }
   }
 });
 

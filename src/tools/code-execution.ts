@@ -1,0 +1,316 @@
+import zodToJsonSchema from "zod-to-json-schema";
+import { z } from "zod";
+import type { Context } from "../context";
+import type { Tool } from "./tool";
+
+// Define the tool schema
+const ExecuteCodeTool = z.object({
+  name: z.literal("browser_execute_js"),
+  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available)"),
+  arguments: z.object({
+    code: z.string().describe(`JavaScript code to execute. 
+      
+      SAFE MODE API (default):
+      Available API methods:
+      - api.$('selector') - Query single element
+      - api.$$('selector') - Query all elements as array
+      - api.getText('selector') - Get text content
+      - api.getValue('selector') - Get input value
+      - api.getAttribute('selector', 'attr') - Get attribute value
+      - api.exists('selector') - Check if element exists
+      - api.count('selector') - Count matching elements
+      - api.click('selector') - Click element
+      - api.setValue('selector', 'value') - Set input value
+      - api.hide('selector') - Hide elements
+      - api.show('selector') - Show elements
+      - api.addClass('selector', 'class') - Add class
+      - api.removeClass('selector', 'class') - Remove class
+      - api.extractTable('selector') - Extract table data
+      - api.extractLinks('containerSelector') - Extract links
+      - api.wait(ms) - Wait for milliseconds
+      - api.scrollTo('selector') - Scroll to element
+      - api.getPageInfo() - Get page metadata
+      - api.log(...args) - Console log for debugging
+      
+      Example: return api.getText('h1');
+      
+      UNSAFE MODE (when enabled):
+      Full access to window, document, fetch, chrome APIs, and all browser features.
+      Use with caution!`),
+    timeout: z.number().optional().default(5000).describe("Execution timeout in milliseconds"),
+    unsafe: z.boolean().optional().describe("Use unsafe mode (requires server/extension configuration)")
+  })
+});
+
+// Execute JavaScript code tool
+export const executeJS: Tool = {
+  schema: {
+    name: ExecuteCodeTool.shape.name.value,
+    description: ExecuteCodeTool.shape.description.value,
+    inputSchema: zodToJsonSchema(ExecuteCodeTool.shape.arguments),
+  },
+  handle: async (context: Context, params) => {
+    const validatedParams = ExecuteCodeTool.shape.arguments.parse(params || {});
+    
+    // Check if unsafe mode is requested
+    let useUnsafeMode = validatedParams.unsafe || false;
+    
+    // Check environment variable for default unsafe mode
+    if (!validatedParams.unsafe && process.env.BROWSERMCP_UNSAFE_MODE === 'true') {
+      useUnsafeMode = true;
+      console.log('[Code Execution] Using unsafe mode from environment variable');
+    }
+    
+    try {
+      // Add security logging
+      const modeStr = useUnsafeMode ? 'UNSAFE' : 'SAFE';
+      console.log(`[Code Execution] Executing ${validatedParams.code.length} chars of code in ${modeStr} mode`);
+      
+      if (useUnsafeMode) {
+        console.warn('⚠️ WARNING: Executing code in UNSAFE mode with full browser access');
+      }
+      
+      // Send to browser for execution
+      const response = await context.sendSocketMessage("js.execute", {
+        code: validatedParams.code,
+        timeout: validatedParams.timeout,
+        unsafe: useUnsafeMode
+      });
+      
+      // Format the result
+      let resultText: string;
+      if (response.result === undefined || response.result === null) {
+        resultText = "Code executed successfully (no return value)";
+      } else if (typeof response.result === 'object') {
+        resultText = JSON.stringify(response.result, null, 2);
+      } else {
+        resultText = String(response.result);
+      }
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: resultText,
+          },
+        ],
+      };
+    } catch (error: any) {
+      // Log security event
+      console.error(`[Code Execution] Error:`, error.message);
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Execution failed: ${error.message}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+};
+
+// Helper tool for common operations
+const CommonOperationsTool = z.object({
+  name: z.literal("browser_common_operation"),
+  description: z.literal("Perform common browser operations using pre-built scripts"),
+  arguments: z.object({
+    operation: z.enum([
+      "hide_popups",
+      "remove_ads",
+      "extract_all_text",
+      "extract_all_links",
+      "extract_all_images",
+      "highlight_interactive",
+      "auto_fill_form",
+      "scroll_to_bottom",
+      "expand_all_sections"
+    ]).describe("The operation to perform"),
+    options: z.record(z.any()).optional().describe("Operation-specific options")
+  })
+});
+
+// Common operations tool
+export const commonOperations: Tool = {
+  schema: {
+    name: CommonOperationsTool.shape.name.value,
+    description: CommonOperationsTool.shape.description.value,
+    inputSchema: zodToJsonSchema(CommonOperationsTool.shape.arguments),
+  },
+  handle: async (context: Context, params) => {
+    const validatedParams = CommonOperationsTool.shape.arguments.parse(params || {});
+    
+    // Pre-built scripts for common operations
+    const operations: Record<string, string> = {
+      hide_popups: `
+        // Hide common popup/modal elements
+        const popupSelectors = [
+          '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]',
+          '[class*="dialog"]', '[id*="modal"]', '[id*="popup"]',
+          '.cookie-banner', '#cookie-banner', '[class*="cookie"]'
+        ];
+        let hidden = 0;
+        popupSelectors.forEach(selector => {
+          hidden += api.hide(selector);
+        });
+        return { hidden: hidden, message: \`Hidden \${hidden} popup elements\` };
+      `,
+      
+      remove_ads: `
+        // Remove common ad elements
+        const adSelectors = [
+          '[class*="ad-"]', '[class*="ads-"]', '[class*="advertisement"]',
+          '[id*="ad-"]', '[id*="ads-"]', 'iframe[src*="doubleclick"]',
+          'iframe[src*="googlesyndication"]', '.sponsored', '[data-ad]'
+        ];
+        let removed = 0;
+        adSelectors.forEach(selector => {
+          removed += api.hide(selector);
+        });
+        return { removed: removed, message: \`Removed \${removed} ad elements\` };
+      `,
+      
+      extract_all_text: `
+        // Extract all visible text from the page
+        const texts = api.$$('p, h1, h2, h3, h4, h5, h6, li, td, th, span, div')
+          .map(el => el.textContent?.trim())
+          .filter(text => text && text.length > 0);
+        return { 
+          totalElements: texts.length,
+          totalChars: texts.join(' ').length,
+          sample: texts.slice(0, 10),
+          full: texts.join('\\n')
+        };
+      `,
+      
+      extract_all_links: `
+        // Extract all links from the page
+        return api.extractLinks('body');
+      `,
+      
+      extract_all_images: `
+        // Extract all images from the page
+        const images = api.$$('img').map(img => ({
+          src: img.src,
+          alt: img.alt || '',
+          width: img.width,
+          height: img.height
+        }));
+        return { count: images.length, images: images };
+      `,
+      
+      highlight_interactive: `
+        // Highlight all interactive elements
+        const style = document.createElement('style');
+        style.textContent = \`
+          .mcp-highlight {
+            outline: 2px solid red !important;
+            outline-offset: 2px !important;
+          }
+        \`;
+        document.head.appendChild(style);
+        
+        const interactive = api.$$('a, button, input, select, textarea, [role="button"], [onclick]');
+        interactive.forEach(el => el.classList.add('mcp-highlight'));
+        
+        return { 
+          highlighted: interactive.length,
+          message: \`Highlighted \${interactive.length} interactive elements\`
+        };
+      `,
+      
+      auto_fill_form: `
+        // Auto-fill form with test data
+        const filled = [];
+        
+        // Fill text inputs
+        api.$$('input[type="text"], input:not([type])').forEach((input, i) => {
+          const name = input.name || input.id || \`field\${i}\`;
+          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, \`Test \${name}\`);
+          filled.push(name);
+        });
+        
+        // Fill email inputs
+        api.$$('input[type="email"]').forEach(input => {
+          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, 'test@example.com');
+          filled.push(input.name || input.id);
+        });
+        
+        // Fill tel inputs
+        api.$$('input[type="tel"]').forEach(input => {
+          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, '555-0123');
+          filled.push(input.name || input.id);
+        });
+        
+        return { filled: filled, count: filled.length };
+      `,
+      
+      scroll_to_bottom: `
+        // Scroll to the bottom of the page
+        window.scrollTo(0, document.body.scrollHeight);
+        await api.wait(500);
+        return { 
+          scrolled: true, 
+          height: document.body.scrollHeight,
+          message: 'Scrolled to bottom of page'
+        };
+      `,
+      
+      expand_all_sections: `
+        // Expand all collapsible sections
+        const expanded = [];
+        
+        // Click all elements with expand-like attributes
+        const expandSelectors = [
+          '[aria-expanded="false"]',
+          '.collapsed',
+          '[class*="expand"]',
+          '[class*="toggle"]',
+          'summary'
+        ];
+        
+        expandSelectors.forEach(selector => {
+          api.$$(selector).forEach(el => {
+            el.click();
+            expanded.push(el.tagName);
+          });
+        });
+        
+        return { 
+          expanded: expanded.length,
+          message: \`Expanded \${expanded.length} sections\`
+        };
+      `
+    };
+    
+    const code = operations[validatedParams.operation];
+    if (!code) {
+      throw new Error(`Unknown operation: ${validatedParams.operation}`);
+    }
+    
+    // Execute the pre-built script
+    const response = await context.sendSocketMessage("js.execute", {
+      code: code,
+      timeout: 10000 // Longer timeout for complex operations
+    });
+    
+    // Format the result
+    let resultText: string;
+    if (typeof response.result === 'object') {
+      resultText = JSON.stringify(response.result, null, 2);
+    } else {
+      resultText = String(response.result);
+    }
+    
+    return {
+      content: [
+        {
+          type: "text",
+          text: resultText,
+        },
+      ],
+    };
+  },
+};
