@@ -250,13 +250,28 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
           finalOutput += `Text: ${popup.text.slice(0, 200)}...\n`;
         }
         if (popup.elements && popup.elements.length > 0) {
-          finalOutput += 'Interactive elements:\n';
+          finalOutput += '\nInteractive elements:\n';
           popup.elements.forEach(el => {
             finalOutput += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
           });
+        } else {
+          finalOutput += '\nNo interactive elements found in popup.\n';
         }
       });
-      finalOutput += '\nTo interact with popup, use browser_click with the ref ID.';
+      
+      finalOutput += '\n📌 To dismiss popup:\n';
+      finalOutput += '1. Use browser_click with a ref ID above\n';
+      finalOutput += '2. Or use browser_execute_js with fallback JavaScript:\n\n';
+      
+      // Add sample fallback JavaScript
+      finalOutput += '```javascript\n';
+      finalOutput += '// Remove cookie/consent popups\n';
+      finalOutput += `document.querySelectorAll('[class*="cookie"], [class*="consent"], [class*="modal"]').forEach(el => {\n`;
+      finalOutput += `  if (window.getComputedStyle(el).position === 'fixed') el.remove();\n`;
+      finalOutput += '});\n';
+      finalOutput += '// Re-enable scrolling\n';
+      finalOutput += `document.body.style.overflow = 'auto';\n`;
+      finalOutput += '```';
       
       // Clear after using
       lastPopupDetection = null;

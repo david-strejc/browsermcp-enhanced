@@ -289,26 +289,50 @@ class PopupDetector {
     const elements = [];
     let seq = 0;
     
-    // Find all interactive elements
+    console.log('[PopupDetector] Extracting popup info from element:', element);
+    
+    // Find all interactive elements - broaden the search
     const interactiveSelectors = [
       'button',
-      'a[href]',
+      'a',
       '[role="button"]',
+      '[role="link"]',
       'input[type="checkbox"]',
       'input[type="radio"]',
       'input[type="button"]',
       'input[type="submit"]',
       'select',
-      '[tabindex]:not([tabindex="-1"])'
+      '[tabindex]:not([tabindex="-1"])',
+      '[onclick]',
+      '[data-action]',
+      'div[class*="button"]',
+      'div[class*="btn"]',
+      'span[class*="button"]',
+      'span[class*="btn"]'
     ];
     
     const interactive = element.querySelectorAll(interactiveSelectors.join(', '));
+    console.log('[PopupDetector] Found interactive elements:', interactive.length);
     
     interactive.forEach(el => {
-      // Skip hidden elements
-      if (!el.offsetParent && el.tagName !== 'INPUT') return;
+      // Check visibility more thoroughly
+      const style = window.getComputedStyle(el);
+      const isVisible = style.display !== 'none' && 
+                       style.visibility !== 'hidden' && 
+                       style.opacity !== '0' &&
+                       (el.offsetWidth > 0 || el.offsetHeight > 0);
+      
+      if (!isVisible) {
+        console.log('[PopupDetector] Skipping hidden element:', el);
+        return;
+      }
       
       const text = this.getElementText(el);
+      if (!text && !el.getAttribute('aria-label')) {
+        console.log('[PopupDetector] Skipping element without text:', el);
+        return;
+      }
+      
       const ref = this.buildRef(el, popupIndex, seq++);
       
       // Store weak reference
@@ -320,6 +344,8 @@ class PopupDetector {
         text: text.slice(0, 100),
         category: this.categorizeButton(text)
       };
+      
+      console.log('[PopupDetector] Adding element descriptor:', descriptor);
       
       // Add checkbox/radio state
       if (el.type === 'checkbox' || el.type === 'radio') {
@@ -361,10 +387,30 @@ class PopupDetector {
   }
   
   /**
-   * Get element text
+   * Get element text - enhanced version
    */
   getElementText(element) {
-    return (element.innerText || element.value || element.getAttribute('aria-label') || '').trim();
+    // Try multiple sources for text
+    let text = element.innerText || 
+               element.textContent || 
+               element.value || 
+               element.getAttribute('aria-label') || 
+               element.getAttribute('title') || 
+               element.getAttribute('data-text') || 
+               element.getAttribute('data-label') || 
+               '';
+    
+    // For inputs/buttons, also check the value attribute
+    if ((element.tagName === 'INPUT' || element.tagName === 'BUTTON') && !text) {
+      text = element.getAttribute('value') || '';
+    }
+    
+    // For links, use href as fallback
+    if (element.tagName === 'A' && !text) {
+      text = element.getAttribute('href') || '';
+    }
+    
+    return text.trim();
   }
   
   /**
@@ -395,25 +441,35 @@ class PopupDetector {
   }
   
   /**
-   * Categorize button by its text
+   * Categorize button by its text - enhanced
    */
   categorizeButton(text) {
     const lower = text.toLowerCase();
     
+    // Check for accept terms
     for (const term of this.acceptTerms) {
       if (lower.includes(term)) return 'accept';
     }
     
+    // Check for reject terms
     for (const term of this.rejectTerms) {
       if (lower.includes(term)) return 'reject';
     }
     
+    // Check for customize terms
     for (const term of this.customizeTerms) {
       if (lower.includes(term)) return 'customize';
     }
     
-    if (lower.includes('x') || lower.includes('close') || lower.includes('×')) {
+    // Check for close/dismiss
+    if (lower.includes('x') || lower.includes('close') || lower.includes('×') || 
+        lower.includes('dismiss') || lower === 'x' || lower === '×') {
       return 'close';
+    }
+    
+    // Check for continue/proceed
+    if (lower.includes('continue') || lower.includes('proceed') || lower.includes('next')) {
+      return 'continue';
     }
     
     return 'unknown';
@@ -612,6 +668,157 @@ class PopupDetector {
     
     return { clicked: true, ref };
   }
+  
+  /**
+   * Automatically dismiss popups using common strategies
+   */
+  async autoDismissPopups() {
+    console.log('[PopupDetector] Attempting auto-dismiss of popups');
+    const dismissalResults = [];
+    
+    for (const popup of this.detectedPopups) {
+      const result = await this.tryDismissPopup(popup);
+      dismissalResults.push(result);
+    }
+    
+    return dismissalResults;
+  }
+  
+  /**
+   * Try to dismiss a single popup
+   */
+  async tryDismissPopup(popup) {
+    console.log('[PopupDetector] Trying to dismiss popup:', popup.type);
+    
+    // Strategy 1: Look for accept/agree buttons (most common)
+    const acceptButton = popup.elements.find(el => el.category === 'accept');
+    if (acceptButton) {
+      try {
+        await this.clickPopupElement(acceptButton.ref);
+        console.log('[PopupDetector] Clicked accept button:', acceptButton.text);
+        return { success: true, method: 'accept_button', ref: acceptButton.ref };
+      } catch (error) {
+        console.error('[PopupDetector] Failed to click accept button:', error);
+      }
+    }
+    
+    // Strategy 2: Look for close/dismiss buttons
+    const closeButton = popup.elements.find(el => el.category === 'close');
+    if (closeButton) {
+      try {
+        await this.clickPopupElement(closeButton.ref);
+        console.log('[PopupDetector] Clicked close button:', closeButton.text);
+        return { success: true, method: 'close_button', ref: closeButton.ref };
+      } catch (error) {
+        console.error('[PopupDetector] Failed to click close button:', error);
+      }
+    }
+    
+    // Strategy 3: Try clicking continue/proceed buttons
+    const continueButton = popup.elements.find(el => el.category === 'continue');
+    if (continueButton) {
+      try {
+        await this.clickPopupElement(continueButton.ref);
+        console.log('[PopupDetector] Clicked continue button:', continueButton.text);
+        return { success: true, method: 'continue_button', ref: continueButton.ref };
+      } catch (error) {
+        console.error('[PopupDetector] Failed to click continue button:', error);
+      }
+    }
+    
+    // Strategy 4: Try ESC key (works on many modals)
+    try {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27 }));
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Check if popup is still visible
+      if (!document.body.contains(popup.element) || !this.isBlockingElement(popup.element)) {
+        console.log('[PopupDetector] ESC key dismissed popup');
+        return { success: true, method: 'escape_key' };
+      }
+    } catch (error) {
+      console.error('[PopupDetector] ESC key failed:', error);
+    }
+    
+    // Strategy 5: Click overlay/backdrop
+    if (popup.element) {
+      const backdrop = popup.element.parentElement?.querySelector('[class*="backdrop"], [class*="overlay"]');
+      if (backdrop) {
+        try {
+          backdrop.click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          
+          if (!document.body.contains(popup.element) || !this.isBlockingElement(popup.element)) {
+            console.log('[PopupDetector] Backdrop click dismissed popup');
+            return { success: true, method: 'backdrop_click' };
+          }
+        } catch (error) {
+          console.error('[PopupDetector] Backdrop click failed:', error);
+        }
+      }
+    }
+    
+    // If all strategies fail, return failure with fallback instructions
+    return {
+      success: false,
+      fallbackJavaScript: this.generateFallbackJS(popup),
+      elements: popup.elements
+    };
+  }
+  
+  /**
+   * Generate fallback JavaScript for manual popup dismissal
+   */
+  generateFallbackJS(popup) {
+    const scripts = [];
+    
+    // Script 1: Remove by class patterns
+    scripts.push(`// Method 1: Remove common popup containers
+document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="consent"], [class*="cookie"], [class*="gdpr"], [class*="overlay"], [class*="dialog"]').forEach(el => {
+  if (window.getComputedStyle(el).position === 'fixed' || window.getComputedStyle(el).position === 'absolute') {
+    el.remove();
+  }
+});`);
+    
+    // Script 2: Remove fixed position elements blocking interaction
+    scripts.push(`// Method 2: Remove fixed elements covering viewport
+document.querySelectorAll('*').forEach(el => {
+  const style = window.getComputedStyle(el);
+  if (style.position === 'fixed' && style.zIndex > 1000) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5) {
+      el.remove();
+    }
+  }
+});`);
+    
+    // Script 3: Re-enable scrolling
+    scripts.push(`// Method 3: Re-enable body scrolling
+document.body.style.overflow = 'auto';
+document.documentElement.style.overflow = 'auto';
+document.body.classList.remove('no-scroll', 'modal-open', 'overflow-hidden');`);
+    
+    // Script 4: Click first visible accept/agree button
+    scripts.push(`// Method 4: Click accept/agree buttons
+['accept', 'agree', 'ok', 'got it', 'continue', 'allow', 'yes'].forEach(term => {
+  const button = Array.from(document.querySelectorAll('button, [role="button"], a')).find(el => 
+    el.innerText.toLowerCase().includes(term) && el.offsetParent !== null
+  );
+  if (button) button.click();
+});`);
+    
+    // Script 5: Remove specific popup if we have element info
+    if (popup.element) {
+      const selector = popup.element.id ? `#${popup.element.id}` : 
+                      popup.element.className ? `.${popup.element.className.split(' ')[0]}` : '';
+      if (selector) {
+        scripts.push(`// Method 5: Remove specific detected popup
+document.querySelector('${selector}')?.remove();`);
+      }
+    }
+    
+    return scripts;
+  }
 }
 
 // Create singleton instance
@@ -654,6 +861,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }))
     };
     sendResponse(result);
+  }
+  
+  if (message.type === 'autoDismissPopups') {
+    window.__popupDetector.autoDismissPopups()
+      .then(results => {
+        // Include fallback JavaScript in response
+        const fallbackScripts = [];
+        results.forEach((result, index) => {
+          if (!result.success && result.fallbackJavaScript) {
+            fallbackScripts.push(...result.fallbackJavaScript);
+          }
+        });
+        sendResponse({ 
+          results, 
+          fallbackScripts,
+          popupsRemaining: window.__popupDetector.detectedPopups.length 
+        });
+      })
+      .catch(error => sendResponse({ error: error.message }));
+    return true;
   }
 });
 
