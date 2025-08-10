@@ -26,7 +26,8 @@ export const navigate: ToolFactory = (snapshot) => ({
     let popupInfo = '';
     if (response && response.popupsDetected && response.popups && response.popups.length > 0) {
       const popup = response.popups[0];
-      popupInfo = `\n\n[POPUP DETECTED: ${popup.containerSelector}]`;
+      popupInfo = `\n\n[POPUP DETECTED: ${popup.containerSelector}]\n`;
+      popupInfo += `[YOU MUST USE browser_execute_js TO CLICK ACCEPT/AGREE SO THE POPUP WON'T APPEAR AGAIN]`;
     }
     
     if (snapshot) {

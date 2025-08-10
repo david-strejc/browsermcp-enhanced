@@ -247,6 +247,7 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
       const popup = lastPopupDetection.popups[0];
       if (popup) {
         finalOutput += `\n\n[POPUP: ${popup.containerSelector}]`;
+        finalOutput += `\n[USE browser_execute_js TO CLICK ACCEPT/AGREE SO IT WON'T APPEAR AGAIN]`;
       }
       
       // Clear after using
