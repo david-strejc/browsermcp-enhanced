@@ -25,8 +25,8 @@ export const browser_debugger_attach: Tool = {
     description: "Attach debugger to current tab to enable monitoring of console, network, and performance",
     inputSchema: zodToJsonSchema(DebuggerAttachSchema),
   },
-  handle: async (context) => {
-    const input = DebuggerAttachSchema.parse(context.params);
+  handle: async (context, params) => {
+    const input = DebuggerAttachSchema.parse(params || {});
     const domains = input.domains || ["console", "network", "performance", "runtime"];
     
     const response = await context.sendSocketMessage("debugger.attach", { domains });
@@ -70,8 +70,8 @@ export const browser_debugger_get_data: Tool = {
     description: "Get collected debug data (console logs, network requests, performance metrics, or errors)",
     inputSchema: zodToJsonSchema(DebuggerGetDataSchema),
   },
-  handle: async (context) => {
-    const input = DebuggerGetDataSchema.parse(context.params);
+  handle: async (context, params) => {
+    const input = DebuggerGetDataSchema.parse(params || {});
     
     const response = await context.sendSocketMessage("debugger.getData", {
       type: input.type,

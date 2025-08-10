@@ -43,12 +43,12 @@ export const browser_tab_select: Tool = {
   handle: async (context, params) => {
     await context.sendSocketMessage("tabs.select", { index: params!.index });
     
-    // Get snapshot of newly selected tab
-    const snapshot = await context.sendSocketMessage("snapshot.accessibility", {});
+    // Get SCAFFOLD snapshot of newly selected tab
+    const snapshot = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
     return { 
       content: [{ 
         type: "text", 
-        text: snapshot.snapshot 
+        text: `Tab ${params!.index} selected\n\n${snapshot.snapshot}` 
       }] 
     };
   },
@@ -67,9 +67,11 @@ export const browser_tab_new: Tool = {
     
     let content = `New tab opened at index ${response.index}`;
     
-    // Get snapshot if URL was provided
+    // Get SCAFFOLD snapshot if URL was provided
     if (params?.url) {
-      const snapResponse = await context.sendSocketMessage("snapshot.accessibility", {});
+      // Wait a bit for page to load
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const snapResponse = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
       content += "\n\n" + snapResponse.snapshot;
     }
     
@@ -95,9 +97,9 @@ export const browser_tab_close: Tool = {
     
     let content = response.success ? "Tab closed successfully" : "Failed to close tab";
     
-    // Get snapshot of current tab after closing
+    // Get SCAFFOLD snapshot of current tab after closing
     try {
-      const snapResponse = await context.sendSocketMessage("snapshot.accessibility", {});
+      const snapResponse = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
       content += "\n\n" + snapResponse.snapshot;
     } catch (e) {
       // Might fail if we closed the last tab

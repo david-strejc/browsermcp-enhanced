@@ -66,6 +66,30 @@ export interface SocketMessageMap {
     request: {};
     response: {};
   };
+  'browser_go_back': {
+    request: {};
+    response: {};
+  };
+  'browser_go_forward': {
+    request: {};
+    response: {};
+  };
+  'browser_navigate': {
+    request: { url: string };
+    response: {};
+  };
+  'browser_wait': {
+    request: { time: number };
+    response: {};
+  };
+  'browser_press_key': {
+    request: { key: string };
+    response: {};
+  };
+  'browser_screenshot': {
+    request: {};
+    response: { data: string };
+  };
   'page.wait': {
     request: { time: number };
     response: {};

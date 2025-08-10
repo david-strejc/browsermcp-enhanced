@@ -71,11 +71,13 @@ export const executeJS: Tool = {
       }
       
       // Send to browser for execution
+      // Add buffer to account for communication overhead
+      const messageTimeout = validatedParams.timeout + 500;
       const response = await context.sendSocketMessage("js.execute", {
         code: validatedParams.code,
         timeout: validatedParams.timeout,
         unsafe: useUnsafeMode
-      });
+      }, { timeoutMs: messageTimeout });
       
       // Format the result
       let resultText: string;
@@ -291,10 +293,11 @@ export const commonOperations: Tool = {
     }
     
     // Execute the pre-built script
+    const operationTimeout = 10000; // Longer timeout for complex operations
     const response = await context.sendSocketMessage("js.execute", {
       code: code,
-      timeout: 10000 // Longer timeout for complex operations
-    });
+      timeout: operationTimeout
+    }, { timeoutMs: operationTimeout + 500 });
     
     // Format the result
     let resultText: string;

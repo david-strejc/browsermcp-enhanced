@@ -14,7 +14,7 @@ export function createSocketMessageSender<TMap>(ws: WebSocket) {
       const message = JSON.stringify({ id, type, payload });
       
       const timeout = setTimeout(() => {
-        reject(new Error(`Timeout waiting for response to message ${id} (${type})`));
+        reject(new Error(`Timeout waiting for response to message ${id} (${String(type)})`));
       }, options.timeoutMs);
       
       const handler = (data: any) => {

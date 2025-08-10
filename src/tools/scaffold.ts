@@ -37,14 +37,38 @@ export const expandRegion: Tool = {
     const validatedParams = ExpandRegionTool.shape.arguments.parse(params || {});
     const response = await context.sendSocketMessage("dom.expand", validatedParams);
     
-    return {
-      content: [
-        {
-          type: "text",
-          text: response.expansion,
-        },
-      ],
-    };
+    // Validate response structure
+    if (response && typeof response === 'object' && 'expansion' in response) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: response.expansion,
+          },
+        ],
+      };
+    } else if (typeof response === 'string') {
+      // Direct string response (fallback)
+      return {
+        content: [
+          {
+            type: "text",
+            text: response,
+          },
+        ],
+      };
+    } else {
+      // Unexpected response format - fail with diagnostic info
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Unexpected response format from dom.expand. Expected {expansion: string} but got: ${JSON.stringify(response, null, 2)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   },
 };
 
@@ -59,13 +83,37 @@ export const queryElements: Tool = {
     const validatedParams = QueryElementsTool.shape.arguments.parse(params || {});
     const response = await context.sendSocketMessage("dom.query", validatedParams);
     
-    return {
-      content: [
-        {
-          type: "text",
-          text: response.results,
-        },
-      ],
-    };
+    // Validate response structure
+    if (response && typeof response === 'object' && 'results' in response) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: response.results,
+          },
+        ],
+      };
+    } else if (typeof response === 'string') {
+      // Direct string response (fallback)
+      return {
+        content: [
+          {
+            type: "text",
+            text: response,
+          },
+        ],
+      };
+    } else {
+      // Unexpected response format - fail with diagnostic info
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error: Unexpected response format from dom.query. Expected {results: string} but got: ${JSON.stringify(response, null, 2)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
   },
 };

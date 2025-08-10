@@ -45,6 +45,13 @@ function updateIcon(connected) {
 // Connect to MCP server
 function connectToMCP() {
   if (ws && ws.readyState === WebSocket.OPEN) {
+    console.log('Already connected to MCP server');
+    return;
+  }
+  
+  // Close existing connection if in connecting state
+  if (ws && ws.readyState === WebSocket.CONNECTING) {
+    console.log('Connection in progress, skipping...');
     return;
   }
   
@@ -54,7 +61,8 @@ function connectToMCP() {
     reconnectTimer = null;
   }
   
-  ws = new WebSocket('ws://localhost:8765');
+  console.log('Connecting to MCP server at:', extensionConfig.serverUrl || 'ws://localhost:8765');
+  ws = new WebSocket(extensionConfig.serverUrl || 'ws://localhost:8765');
   
   ws.onopen = () => {
     console.log('Connected to MCP server');
@@ -70,13 +78,25 @@ function connectToMCP() {
   };
   
   ws.onmessage = async (event) => {
+    let messageId = null;
     try {
       const message = JSON.parse(event.data);
+      messageId = message.id;
       console.log('Received message:', message);
+      
+      // Handle ping messages
+      if (message.type === 'ping') {
+        ws.send(JSON.stringify({
+          id: message.id,
+          type: 'pong',
+          timestamp: Date.now()
+        }));
+        return;
+      }
       
       if (messageHandlers.has(message.type)) {
         const handler = messageHandlers.get(message.type);
-        const response = await handler(message.payload);
+        const response = await handler(message.payload || {});
         
         ws.send(JSON.stringify({
           id: message.id,
@@ -84,6 +104,7 @@ function connectToMCP() {
           payload: response
         }));
       } else {
+        console.warn(`Unknown message type: ${message.type}`);
         ws.send(JSON.stringify({
           id: message.id,
           type: message.type,
@@ -91,16 +112,18 @@ function connectToMCP() {
         }));
       }
     } catch (error) {
-      console.error('Error handling message:', error);
-      ws.send(JSON.stringify({
-        id: message.id,
-        error: error.message
-      }));
+      console.error('Error handling message:', error, error.stack);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          id: messageId,
+          error: error.message
+        }));
+      }
     }
   };
   
   ws.onclose = () => {
-    console.log('Disconnected from MCP server');
+    console.log('Disconnected from MCP server, will reconnect in 2 seconds...');
     updateIcon(false);
     
     // Clear keepalive
@@ -109,8 +132,8 @@ function connectToMCP() {
       keepAliveTimer = null;
     }
     
-    // Reconnect after 5 seconds
-    reconnectTimer = setTimeout(connectToMCP, 5000);
+    // Reconnect after 2 seconds (more aggressive)
+    reconnectTimer = setTimeout(connectToMCP, 2000);
   };
   
   ws.onerror = (error) => {
@@ -297,6 +320,80 @@ messageHandlers.set('keyboard.press', async ({ key }) => {
   return {};
 });
 
+// Add handler for browser_press_key (MCP server compatibility)
+messageHandlers.set('browser_press_key', async ({ key }) => {
+  // Handle special browser-level keys
+  if (key === 'F12' || key === 'f12') {
+    // Use Chrome Debugger API to simulate DevTools opening
+    // Note: We can't actually open DevTools, but we can attach debugger which shows a bar
+    if (!debuggerHandler.attached) {
+      try {
+        await chrome.debugger.attach({ tabId: activeTabId }, "1.3");
+        debuggerHandler.attached = true;
+        debuggerHandler.tabId = activeTabId;
+        // Enable necessary domains for full debugging
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Runtime.enable", {});
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Console.enable", {});
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Log.enable", {});
+        return { message: "Debugger attached (DevTools simulation). Chrome shows debugging bar." };
+      } catch (error) {
+        return { error: `Could not attach debugger: ${error.message}` };
+      }
+    } else {
+      // If already attached, detach
+      await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
+      debuggerHandler.attached = false;
+      debuggerHandler.tabId = null;
+      return { message: "Debugger detached" };
+    }
+  }
+  
+  // Try to use debugger Input API for more powerful key simulation if debugger is attached
+  if (debuggerHandler.attached && debuggerHandler.tabId === activeTabId) {
+    try {
+      // Parse key for debugger API
+      let keyCode = key;
+      const modifiers = [];
+      
+      if (key.includes('+')) {
+        const parts = key.split('+');
+        keyCode = parts[parts.length - 1];
+        if (parts.includes('Ctrl') || parts.includes('Control')) modifiers.push(1); // Ctrl
+        if (parts.includes('Shift')) modifiers.push(2); // Shift
+        if (parts.includes('Alt')) modifiers.push(4); // Alt
+        if (parts.includes('Meta') || parts.includes('Cmd')) modifiers.push(8); // Meta
+      }
+      
+      // Use Input.dispatchKeyEvent for more powerful key simulation
+      await chrome.debugger.sendCommand({ tabId: activeTabId }, "Input.dispatchKeyEvent", {
+        type: "keyDown",
+        key: keyCode,
+        code: keyCode,
+        modifiers: modifiers.reduce((a, b) => a | b, 0)
+      });
+      
+      await chrome.debugger.sendCommand({ tabId: activeTabId }, "Input.dispatchKeyEvent", {
+        type: "keyUp",
+        key: keyCode,
+        code: keyCode,
+        modifiers: modifiers.reduce((a, b) => a | b, 0)
+      });
+      
+      return { message: `Key pressed via debugger: ${key}` };
+    } catch (error) {
+      console.log('Debugger key dispatch failed, falling back to script injection:', error);
+    }
+  }
+  
+  // For regular keys or if debugger fails, use the standard approach
+  await chrome.scripting.executeScript({
+    target: { tabId: activeTabId },
+    func: pressKey,
+    args: [key]
+  });
+  return {};
+});
+
 messageHandlers.set('console.get', async () => {
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
@@ -311,19 +408,179 @@ messageHandlers.set('screenshot.capture', async () => {
   return { data: base64 };
 });
 
+// Add handler for browser_screenshot (MCP server compatibility)
+messageHandlers.set('browser_screenshot', async () => {
+  try {
+    // Ensure we have an active tab
+    if (!activeTabId) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab) {
+        activeTabId = tab.id;
+      }
+    }
+    
+    console.log('Taking screenshot of tab:', activeTabId);
+    const dataUrl = await chrome.tabs.captureVisibleTab();
+    console.log('Data URL length:', dataUrl ? dataUrl.length : 0);
+    
+    const base64 = dataUrl.split(',')[1];
+    console.log('Base64 length:', base64 ? base64.length : 0);
+    
+    if (!base64) {
+      console.error('Screenshot captured but no base64 data found');
+      console.error('Data URL was:', dataUrl ? dataUrl.substring(0, 100) : 'undefined');
+      return { error: 'Screenshot captured but no data found' };
+    }
+    
+    // Log first 100 chars to verify data exists
+    console.log('Screenshot base64 preview:', base64.substring(0, 100));
+    
+    return { data: base64 };
+  } catch (error) {
+    console.error('Screenshot failed:', error);
+    return { error: `Screenshot failed: ${error.message}` };
+  }
+});
+
 messageHandlers.set('page.navigate', async ({ url }) => {
   await chrome.tabs.update(activeTabId, { url });
+  // Wait for navigation to complete
+  await waitForTabComplete(activeTabId);
   return {};
 });
 
-messageHandlers.set('page.goBack', async () => {
-  await chrome.tabs.goBack(activeTabId);
+// Add handlers for browser_* message types (MCP server compatibility)
+messageHandlers.set('browser_navigate', async ({ url }) => {
+  // Get active tab if not set
+  if (!activeTabId) {
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (activeTab) {
+      activeTabId = activeTab.id;
+    } else {
+      // Create a new tab if no active tab
+      const newTab = await chrome.tabs.create({ url });
+      activeTabId = newTab.id;
+      await waitForTabComplete(activeTabId);
+      return {};
+    }
+  }
+  
+  await chrome.tabs.update(activeTabId, { url });
+  // Wait for navigation to complete
+  await waitForTabComplete(activeTabId);
   return {};
+});
+
+// Helper function to wait for tab to finish loading
+async function waitForTabComplete(tabId, timeoutMs = 10000) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      reject(new Error(`Tab load timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+    
+    const listener = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        chrome.tabs.onUpdated.removeListener(listener);
+        clearTimeout(timeoutId);
+        resolve();
+      }
+    };
+    
+    // Check if already complete
+    chrome.tabs.get(tabId, (tab) => {
+      if (tab.status === 'complete') {
+        clearTimeout(timeoutId);
+        resolve();
+      } else {
+        chrome.tabs.onUpdated.addListener(listener);
+      }
+    });
+  });
+}
+
+messageHandlers.set('page.goBack', async () => {
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+  
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => window.history.back()
+    });
+    
+    // Wait for navigation to complete
+    await waitForTabComplete(activeTabId);
+  } catch (error) {
+    // Fallback to debugger API for CSP-restricted sites
+    if (error.message.includes('Cannot access')) {
+      try {
+        await chrome.debugger.attach({ tabId: activeTabId }, "1.3");
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Page.navigateBack", {});
+        await waitForTabComplete(activeTabId);
+        await chrome.debugger.detach({ tabId: activeTabId });
+      } catch (debuggerError) {
+        throw new Error(`Navigation failed: ${error.message}. Debugger fallback also failed: ${debuggerError.message}`);
+      }
+    } else {
+      throw error;
+    }
+  }
+  
+  return {};
+});
+
+messageHandlers.set('browser_go_back', async () => {
+  // Delegate to the same handler
+  return await messageHandlers.get('page.goBack')();
 });
 
 messageHandlers.set('page.goForward', async () => {
-  await chrome.tabs.goForward(activeTabId);
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+  
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => window.history.forward()
+    });
+    
+    // Wait for navigation to complete
+    await waitForTabComplete(activeTabId);
+  } catch (error) {
+    // Fallback to debugger API for CSP-restricted sites
+    if (error.message.includes('Cannot access')) {
+      try {
+        await chrome.debugger.attach({ tabId: activeTabId }, "1.3");
+        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Page.navigateForward", {});
+        await waitForTabComplete(activeTabId);
+        await chrome.debugger.detach({ tabId: activeTabId });
+      } catch (debuggerError) {
+        throw new Error(`Navigation failed: ${error.message}. Debugger fallback also failed: ${debuggerError.message}`);
+      }
+    } else {
+      throw error;
+    }
+  }
+  
   return {};
+});
+
+messageHandlers.set('browser_go_forward', async () => {
+  // Delegate to the same handler
+  return await messageHandlers.get('page.goForward')();
 });
 
 messageHandlers.set('page.wait', async ({ time }) => {
@@ -331,10 +588,16 @@ messageHandlers.set('page.wait', async ({ time }) => {
   return {};
 });
 
-// Debugger handler instance
+messageHandlers.set('browser_wait', async ({ time }) => {
+  await new Promise(resolve => setTimeout(resolve, time * 1000));
+  return {};
+});
+
+// Debugger handler instance - track attached tabs to prevent concurrency issues
 const debuggerHandler = {
   attached: false,
   tabId: null,
+  attachedTabs: new Set(), // Track which tabs have debugger attached
   data: {
     console: [],
     network: [],
@@ -346,8 +609,19 @@ const debuggerHandler = {
 
 // Debugger message handlers
 messageHandlers.set('debugger.attach', async ({ domains = ["console", "network", "performance", "runtime"] }) => {
-  if (debuggerHandler.attached) {
-    await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
+  // Check if already attached to this tab
+  if (debuggerHandler.attachedTabs.has(activeTabId)) {
+    return { success: true, message: 'Debugger already attached to this tab' };
+  }
+  
+  // Clean up any previous attachment
+  if (debuggerHandler.attached && debuggerHandler.tabId !== activeTabId) {
+    try {
+      await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
+      debuggerHandler.attachedTabs.delete(debuggerHandler.tabId);
+    } catch (e) {
+      console.warn('Failed to detach previous debugger:', e);
+    }
   }
 
   debuggerHandler.tabId = activeTabId;
@@ -360,6 +634,7 @@ messageHandlers.set('debugger.attach', async ({ domains = ["console", "network",
       }
       
       debuggerHandler.attached = true;
+      debuggerHandler.attachedTabs.add(activeTabId);
       
       // Enable requested domains
       try {
@@ -378,6 +653,7 @@ messageHandlers.set('debugger.attach', async ({ domains = ["console", "network",
         
         resolve({ success: true });
       } catch (error) {
+        debuggerHandler.attachedTabs.delete(activeTabId);
         resolve({ error: error.message });
       }
     });
@@ -385,16 +661,19 @@ messageHandlers.set('debugger.attach', async ({ domains = ["console", "network",
 });
 
 messageHandlers.set('debugger.detach', async () => {
-  if (!debuggerHandler.attached) {
+  if (!debuggerHandler.attached || !debuggerHandler.tabId) {
     return { success: false, error: "Debugger not attached" };
   }
 
+  const tabToDetach = debuggerHandler.tabId;
+  
   return new Promise((resolve) => {
-    chrome.debugger.detach({ tabId: debuggerHandler.tabId }, () => {
+    chrome.debugger.detach({ tabId: tabToDetach }, () => {
       debuggerHandler.attached = false;
+      debuggerHandler.attachedTabs.delete(tabToDetach);
       debuggerHandler.tabId = null;
       
-      // Keep only last 100 entries
+      // Keep only last 100 entries to prevent memory leaks
       debuggerHandler.data.console = debuggerHandler.data.console.slice(-100);
       debuggerHandler.data.network = debuggerHandler.data.network.slice(-100);
       debuggerHandler.data.errors = debuggerHandler.data.errors.slice(-100);
@@ -529,56 +808,53 @@ function estimateTokens(text) {
 // Capture ultra-minimal scaffold view
 function captureScaffoldSnapshot() {
   const landmarks = [];
+  const MAX_REGIONS = 15; // Limit number of regions
   
-  // Find major landmarks
+  // Find major landmarks only
   const selectors = [
     'header, [role="banner"]',
     'nav, [role="navigation"]', 
     'main, [role="main"]',
-    'aside, [role="complementary"]',
-    'footer, [role="contentinfo"]',
-    'section[id], section[class*="content"]',
-    'div[class*="container"]:has(a, button)'
+    'footer, [role="contentinfo"]'
   ];
   
   selectors.forEach(selector => {
-    document.querySelectorAll(selector).forEach(element => {
-      if (!element.dataset.scaffoldSeen) {
-        element.dataset.scaffoldSeen = 'true';
-        
-        // Count interactive elements
-        const interactive = element.querySelectorAll('a, button, input, select, textarea, [role="button"], [onclick]');
-        
-        // Get preview text (first few interactive elements)
-        const preview = Array.from(interactive)
-          .slice(0, 5)
-          .map(el => {
-            const text = el.textContent || el.value || el.placeholder || '';
-            return text.trim().substring(0, 20);
-          })
-          .filter(Boolean)
-          .join(', ');
-        
-        // Get bounds
-        const rect = element.getBoundingClientRect();
-        
-        landmarks.push({
-          ref: window.__elementTracker.getElementId(element),
-          type: element.tagName.toLowerCase(),
-          role: element.getAttribute('role') || element.tagName.toLowerCase(),
-          class: element.className ? element.className.substring(0, 50) : '',
-          interactiveCount: interactive.length,
-          preview: preview + (interactive.length > 5 ? '...' : ''),
-          visible: rect.top < window.innerHeight && rect.bottom > 0,
-          bounds: {
-            top: Math.round(rect.top),
-            left: Math.round(rect.left),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height)
-          }
-        });
-      }
-    });
+    if (landmarks.length >= MAX_REGIONS) return;
+    
+    const elements = document.querySelectorAll(selector);
+    for (let i = 0; i < Math.min(elements.length, 2); i++) { // Max 2 of each type
+      const element = elements[i];
+      if (landmarks.length >= MAX_REGIONS) break;
+      if (element.dataset.scaffoldSeen) continue;
+      
+      element.dataset.scaffoldSeen = 'true';
+      
+      // Count interactive elements
+      const interactive = element.querySelectorAll('a, button, input, select, textarea');
+      
+      // Get very brief preview (first 3 items only)
+      const preview = Array.from(interactive)
+        .slice(0, 3)
+        .map(el => {
+          const text = el.textContent || el.value || el.placeholder || '';
+          return text.trim().substring(0, 15);
+        })
+        .filter(Boolean)
+        .join(', ');
+      
+      // Check visibility
+      const rect = element.getBoundingClientRect();
+      const visible = rect.top < window.innerHeight && rect.bottom > 0;
+      
+      landmarks.push({
+        ref: window.__elementTracker.getElementId(element),
+        type: element.tagName.toLowerCase(),
+        role: element.getAttribute('role') || element.tagName.toLowerCase(),
+        interactiveCount: interactive.length,
+        preview: preview ? preview.substring(0, 50) : '',
+        visible: visible
+      });
+    }
   });
   
   // Clean up markers
@@ -586,10 +862,10 @@ function captureScaffoldSnapshot() {
     delete el.dataset.scaffoldSeen;
   });
   
-  // Build scaffold output
-  let output = `Page: ${document.title || 'Untitled'}\n`;
+  // Build ULTRA-COMPACT output
+  let output = `Page: ${document.title?.substring(0, 60) || 'Untitled'}\n`;
   output += `URL: ${window.location.href}\n`;
-  output += `[Scaffold View - ${landmarks.length} regions]\n\n`;
+  output += `[Scaffold: ${landmarks.length} regions]\n\n`;
   
   landmarks.forEach(landmark => {
     output += `${landmark.type} [ref=${landmark.ref}]`;
@@ -597,16 +873,27 @@ function captureScaffoldSnapshot() {
       output += ` role="${landmark.role}"`;
     }
     if (!landmark.visible) {
-      output += ` [off-screen]`;
+      output += ` [hidden]`;
+    }
+    if (landmark.interactiveCount > 0) {
+      output += ` (${landmark.interactiveCount} items)`;
+    }
+    if (landmark.preview) {
+      output += ` "${landmark.preview}"`;
     }
     output += `\n`;
-    output += `  Interactive: ${landmark.interactiveCount} elements\n`;
-    if (landmark.preview) {
-      output += `  Preview: "${landmark.preview}"\n`;
-    }
-    output += `  Position: ${landmark.bounds.left},${landmark.bounds.top} (${landmark.bounds.width}x${landmark.bounds.height})\n`;
-    output += '\n';
   });
+  
+  // Add main interactive elements summary
+  const allInputs = document.querySelectorAll('input[type="search"], input[type="text"], button[type="submit"]');
+  if (allInputs.length > 0) {
+    output += `\n[Key Elements]\n`;
+    Array.from(allInputs).slice(0, 5).forEach(el => {
+      const ref = window.__elementTracker.getElementId(el);
+      const label = el.placeholder || el.value || el.textContent || el.type;
+      output += `${el.tagName.toLowerCase()} [ref=${ref}] "${label?.substring(0, 30)}"\n`;
+    });
+  }
   
   return output;
 }
@@ -687,63 +974,68 @@ function expandRegion(refId, options = {}) {
 function queryElements(options = {}) {
   const { selector = '*', containing = '', nearRef = null, limit = 20 } = options;
   
-  let elements = Array.from(document.querySelectorAll(selector));
-  
-  // Filter by text content
-  if (containing) {
-    const searchText = containing.toLowerCase();
-    elements = elements.filter(el => {
-      const text = (el.textContent || el.value || el.placeholder || '').toLowerCase();
-      return text.includes(searchText);
-    });
-  }
-  
-  // Sort by proximity to reference element
-  if (nearRef) {
-    const refElement = window.__elementTracker.getElementById(nearRef);
-    if (refElement) {
-      const refRect = refElement.getBoundingClientRect();
-      const refX = refRect.left + refRect.width / 2;
-      const refY = refRect.top + refRect.height / 2;
-      
-      elements.sort((a, b) => {
-        const aRect = a.getBoundingClientRect();
-        const aX = aRect.left + aRect.width / 2;
-        const aY = aRect.top + aRect.height / 2;
-        const aDist = Math.sqrt(Math.pow(aX - refX, 2) + Math.pow(aY - refY, 2));
-        
-        const bRect = b.getBoundingClientRect();
-        const bX = bRect.left + bRect.width / 2;
-        const bY = bRect.top + bRect.height / 2;
-        const bDist = Math.sqrt(Math.pow(bX - refX, 2) + Math.pow(bY - refY, 2));
-        
-        return aDist - bDist;
+  try {
+    let elements = Array.from(document.querySelectorAll(selector));
+    
+    // Filter by text content
+    if (containing) {
+      const searchText = containing.toLowerCase();
+      elements = elements.filter(el => {
+        const text = (el.textContent || el.value || el.placeholder || '').toLowerCase();
+        return text.includes(searchText);
       });
     }
-  }
-  
-  // Limit results
-  elements = elements.slice(0, limit);
-  
-  // Format output
-  let output = `Found ${elements.length} elements:\n\n`;
-  
-  elements.forEach(el => {
-    const ref = window.__elementTracker.getElementId(el);
-    const role = el.tagName.toLowerCase();
-    const text = (el.textContent || el.value || '').trim().substring(0, 100);
     
-    output += `${role} [ref=${ref}]`;
-    if (text) {
-      output += ` "${text}"`;
+    // Sort by proximity to reference element
+    if (nearRef) {
+      const refElement = window.__elementTracker.getElementById(nearRef);
+      if (refElement) {
+        const refRect = refElement.getBoundingClientRect();
+        const refX = refRect.left + refRect.width / 2;
+        const refY = refRect.top + refRect.height / 2;
+        
+        elements.sort((a, b) => {
+          const aRect = a.getBoundingClientRect();
+          const aX = aRect.left + aRect.width / 2;
+          const aY = aRect.top + aRect.height / 2;
+          const aDist = Math.sqrt(Math.pow(aX - refX, 2) + Math.pow(aY - refY, 2));
+          
+          const bRect = b.getBoundingClientRect();
+          const bX = bRect.left + bRect.width / 2;
+          const bY = bRect.top + bRect.height / 2;
+          const bDist = Math.sqrt(Math.pow(bX - refX, 2) + Math.pow(bY - refY, 2));
+          
+          return aDist - bDist;
+        });
+      }
     }
-    if (el.href) {
-      output += ` {href: "${el.href}"}`;
-    }
-    output += '\n';
-  });
+    
+    // Limit results
+    elements = elements.slice(0, limit);
+    
+    // Format output
+    let output = `Found ${elements.length} elements:\n\n`;
   
-  return output;
+    elements.forEach(el => {
+      const ref = window.__elementTracker.getElementId(el);
+      const role = el.tagName.toLowerCase();
+      const text = (el.textContent || el.value || '').trim().substring(0, 100);
+      
+      output += `${role} [ref=${ref}]`;
+      if (text) {
+        output += ` "${text}"`;
+      }
+      if (el.href) {
+        output += ` {href: "${el.href}"}`;
+      }
+      output += '\n';
+    });
+    
+    return output || 'No elements found';
+  } catch (error) {
+    console.error('Error in queryElements:', error);
+    return `Error querying elements: ${error.message}`;
+  }
 }
 
 // Functions to inject into page
@@ -1150,9 +1442,27 @@ function selectOptions(ref, values) {
 }
 
 function pressKey(key) {
-  document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key }));
-  document.activeElement.dispatchEvent(new KeyboardEvent('keypress', { key }));
-  document.activeElement.dispatchEvent(new KeyboardEvent('keyup', { key }));
+  // Enhanced key press with modifier support
+  const keyEvent = { key, bubbles: true, cancelable: true };
+  
+  // Parse modifiers from key string (e.g., "Ctrl+Shift+I")
+  const parts = key.split('+');
+  if (parts.length > 1) {
+    const actualKey = parts[parts.length - 1];
+    keyEvent.key = actualKey;
+    keyEvent.ctrlKey = parts.includes('Ctrl') || parts.includes('Control');
+    keyEvent.shiftKey = parts.includes('Shift');
+    keyEvent.altKey = parts.includes('Alt');
+    keyEvent.metaKey = parts.includes('Meta') || parts.includes('Cmd');
+  }
+  
+  // Dispatch to both document and activeElement for maximum compatibility
+  const targets = [document, document.activeElement].filter(Boolean);
+  targets.forEach(target => {
+    target.dispatchEvent(new KeyboardEvent('keydown', keyEvent));
+    target.dispatchEvent(new KeyboardEvent('keypress', keyEvent));
+    target.dispatchEvent(new KeyboardEvent('keyup', keyEvent));
+  });
 }
 
 function getConsoleLogs() {
@@ -1198,6 +1508,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Code execution handler
 messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }) => {
+  console.log(`[js.execute] Starting execution with timeout=${timeout}ms`);
+  
   if (!activeTabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab?.id;
@@ -1214,10 +1526,10 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
   });
   
   if (!checkResult.result) {
-    // Inject code executor
+    // Inject code executor (use safe version for CSP compliance)
     await chrome.scripting.executeScript({
       target: { tabId: activeTabId },
-      files: ['code-executor.js']
+      files: ['code-executor-safe.js']
     });
     
     // Wait a bit for initialization
@@ -1228,14 +1540,17 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
   const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
   return new Promise((resolve, reject) => {
-    // Set timeout for execution
+    // Set timeout for execution - add small buffer for message round-trip
     const timeoutId = setTimeout(() => {
+      // Try to abort execution
       chrome.tabs.sendMessage(activeTabId, {
         type: 'execute.abort',
         executionId: executionId
+      }, () => {
+        // Ignore abort response
       });
       reject(new Error(`Code execution timeout after ${timeout}ms`));
-    }, timeout + 1000); // Add 1s buffer
+    }, timeout + 100); // Small buffer for message handling
     
     // Determine unsafe mode: explicit parameter > config > default (false)
     const useUnsafeMode = unsafe !== null ? unsafe : extensionConfig.unsafeMode;
@@ -1255,11 +1570,22 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
       clearTimeout(timeoutId);
       
       if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else if (response.success) {
+        // Check if it's because script isn't injected
+        console.error(`[js.execute] Chrome runtime error:`, chrome.runtime.lastError);
+        if (chrome.runtime.lastError.message.includes('receiving end does not exist')) {
+          reject(new Error('Code executor not available. Page may not support script injection or content security policy may be blocking execution.'));
+        } else {
+          reject(new Error(`Communication error: ${chrome.runtime.lastError.message}`));
+        }
+      } else if (response && response.success) {
+        console.log(`[js.execute] Success response received`);
         resolve({ result: response.result });
+      } else if (response && response.error) {
+        console.log(`[js.execute] Error response: ${response.error}`);
+        reject(new Error(response.error));
       } else {
-        reject(new Error(response.error || 'Execution failed'));
+        console.error(`[js.execute] Invalid response:`, response);
+        reject(new Error('Code execution failed: No valid response received'));
       }
     });
   });
@@ -1353,4 +1679,83 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.action.onClicked.addListener((tab) => {
   activeTabId = tab.id;
   connectToMCP();
+});
+
+// Initialize on install/update
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('Extension installed/updated:', details.reason);
+  
+  // Set default icon
+  updateIcon(false);
+  
+  // Initialize connection
+  connectToMCP();
+  
+  // Set up periodic health check alarm (every minute)
+  chrome.alarms.create('healthCheck', { periodInMinutes: 1 });
+  
+  // Get active tab
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs.length > 0) {
+      activeTabId = tabs[0].id;
+    }
+  });
+});
+
+// Initialize on browser startup
+chrome.runtime.onStartup.addListener(() => {
+  console.log('Browser started - initializing extension');
+  connectToMCP();
+  
+  // Get active tab
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (tabs.length > 0) {
+      activeTabId = tabs[0].id;
+    }
+  });
+});
+
+// Reconnect on tab activation
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  activeTabId = activeInfo.tabId;
+  
+  // Ensure we're connected
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    connectToMCP();
+  }
+});
+
+// Keep connection alive on idle (if API available)
+if (chrome.idle && chrome.idle.onStateChanged) {
+  chrome.idle.onStateChanged.addListener((state) => {
+    if (state === 'active') {
+      // User is active, ensure connection
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectToMCP();
+      }
+    }
+  });
+}
+
+// Periodic health check
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'healthCheck') {
+    // Check WebSocket connection health
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.log('Health check: Connection lost, reconnecting...');
+      connectToMCP();
+    } else {
+      console.log('Health check: Connection healthy');
+    }
+  }
+});
+
+// Initialize immediately when script loads
+connectToMCP();
+
+// Get initial active tab
+chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+  if (tabs.length > 0) {
+    activeTabId = tabs[0].id;
+  }
 });

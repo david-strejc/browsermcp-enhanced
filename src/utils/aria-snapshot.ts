@@ -6,8 +6,12 @@ export async function captureAriaSnapshot(
   status: string = "",
   options: { level?: 'minimal' | 'full' | 'scaffold'; viewportOnly?: boolean; mode?: string } = {},
 ): Promise<ToolResult> {
-  // Check for scaffold mode
-  if (options.level === 'scaffold' || options.mode === 'scaffold') {
+  // For navigation tools, default to scaffold mode for compact output
+  const useScaffold = options.level === 'scaffold' || 
+                      options.mode === 'scaffold' || 
+                      (!options.level && !options.mode); // Default to scaffold if no options
+  
+  if (useScaffold) {
     const response = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
     return {
       content: [
@@ -19,7 +23,7 @@ export async function captureAriaSnapshot(
     };
   }
   
-  // Default to minimal mode for better token efficiency
+  // Use specified mode for non-scaffold
   const snapshotOptions = {
     level: options.level || 'minimal',
     viewportOnly: options.viewportOnly ?? true

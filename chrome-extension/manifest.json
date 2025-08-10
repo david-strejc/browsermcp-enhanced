@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "BrowserMCP Enhanced",
-  "version": "1.2.0",
-  "description": "Enhanced BrowserMCP with tab management and debugging",
+  "version": "1.8.4",
+  "description": "Enhanced BrowserMCP with CSP-safe execution and auto-reconnect",
   "permissions": [
     "tabs",
     "activeTab",
@@ -10,7 +10,8 @@
     "webNavigation",
     "storage",
     "debugger",
-    "alarms"
+    "alarms",
+    "idle"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -30,8 +31,9 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["element-tracker.js", "element-validator.js", "content.js"],
-      "run_at": "document_idle"
+      "js": ["element-tracker.js", "element-validator.js", "code-executor-safe.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
   ]
 }

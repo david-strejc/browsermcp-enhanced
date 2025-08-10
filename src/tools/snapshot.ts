@@ -22,9 +22,14 @@ export const snapshot: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = SnapshotTool.shape.arguments.parse(params || {});
+    
+    // Check for scaffold mode in either level or mode parameter
+    const isScaffold = validatedParams.level === 'scaffold' || validatedParams.mode === 'scaffold';
+    
     return await captureAriaSnapshot(context, "", {
-      level: validatedParams.level,
-      viewportOnly: validatedParams.viewportOnly
+      level: isScaffold ? 'scaffold' : validatedParams.level,
+      viewportOnly: validatedParams.viewportOnly,
+      mode: validatedParams.mode
     });
   },
 };
@@ -68,7 +73,7 @@ export const drag: Tool = {
       content: [
         {
           type: "text",
-          text: `Dragged "${validatedParams.startElement}" to "${validatedParams.endElement}"`,
+          text: `Dragged element "${validatedParams.ref}" to "${validatedParams.targetRef}"`,
         },
         ...snapshot.content,
       ],
