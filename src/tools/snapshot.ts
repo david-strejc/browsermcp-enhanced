@@ -42,13 +42,29 @@ export const click: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = ClickTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("dom.click", { ref: validatedParams.ref });
+    const response = await context.sendSocketMessage("dom.click", { ref: validatedParams.ref, detectPopups: true });
     const snapshot = await captureAriaSnapshot(context);
+    
+    // Check if popups were detected after click
+    let popupInfo = '';
+    if (response && response.popupsDetected) {
+      popupInfo = '\n\n🔔 POPUP DETECTED AFTER CLICK!\n';
+      response.popups.forEach((popup: any, index: number) => {
+        popupInfo += `\nPopup ${index + 1}: ${popup.type}\n`;
+        popupInfo += `Text: ${popup.text?.slice(0, 200)}...\n`;
+        popupInfo += `\nInteractive elements:\n`;
+        popup.elements?.forEach((el: any) => {
+          popupInfo += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
+        });
+      });
+      popupInfo += '\nTo interact with popup, use browser_click with the ref ID.';
+    }
+    
     return {
       content: [
         {
           type: "text",
-          text: `Clicked "${validatedParams.element}"`,
+          text: `Clicked "${validatedParams.element}"${popupInfo}`,
         },
         ...snapshot.content,
       ],

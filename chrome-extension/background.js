@@ -4,6 +4,7 @@ let activeTabId = null;
 let messageHandlers = new Map();
 let reconnectTimer = null;
 let keepAliveTimer = null;
+let lastPopupDetection = null; // Store last popup detection result
 
 // Configuration
 let extensionConfig = {
@@ -167,6 +168,7 @@ messageHandlers.set('tabs.select', async ({ index }) => {
 });
 
 messageHandlers.set('tabs.new', async ({ url, detectPopups }) => {
+  console.log('[tabs.new] Creating tab with URL:', url, 'detectPopups:', detectPopups);
   const tab = await chrome.tabs.create({ url: url || 'about:blank' });
   activeTabId = tab.id;
   
@@ -174,8 +176,15 @@ messageHandlers.set('tabs.new', async ({ url, detectPopups }) => {
   
   // If URL provided and popup detection enabled, wait and detect
   if (url && detectPopups) {
+    console.log('[tabs.new] Waiting for tab to complete...');
     await waitForTabComplete(tab.id);
+    console.log('[tabs.new] Tab complete, waiting 1s for popups...');
+    // Wait a bit for popups to appear (they often load after page complete)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('[tabs.new] Calling detectPopupsInTab...');
     popupInfo = await detectPopupsInTab(tab.id);
+    console.log('[tabs.new] Popup info received:', popupInfo);
+    lastPopupDetection = popupInfo; // Store for later use
   }
   
   return { 
@@ -230,7 +239,30 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
       target: { tabId: activeTabId },
       func: captureScaffoldSnapshot
     });
-    return { snapshot: result.result };
+    
+    // Add popup info if available
+    let finalOutput = result.result;
+    if (lastPopupDetection && lastPopupDetection.popupsDetected) {
+      finalOutput += '\n\n🔔 POPUP DETECTED!\n';
+      lastPopupDetection.popups.forEach((popup, index) => {
+        finalOutput += `\nPopup ${index + 1}: ${popup.type}\n`;
+        if (popup.text) {
+          finalOutput += `Text: ${popup.text.slice(0, 200)}...\n`;
+        }
+        if (popup.elements && popup.elements.length > 0) {
+          finalOutput += 'Interactive elements:\n';
+          popup.elements.forEach(el => {
+            finalOutput += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
+          });
+        }
+      });
+      finalOutput += '\nTo interact with popup, use browser_click with the ref ID.';
+      
+      // Clear after using
+      lastPopupDetection = null;
+    }
+    
+    return { snapshot: finalOutput };
   }
   
   const [result] = await chrome.scripting.executeScript({
@@ -257,7 +289,7 @@ messageHandlers.set('snapshot.query', async ({ selector, all }) => {
   return result.result;
 });
 
-messageHandlers.set('dom.click', async ({ ref }) => {
+messageHandlers.set('dom.click', async ({ ref, detectPopups = true }) => {
   // Check if scripts are already injected by testing for __elementTracker
   const [checkResult] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
@@ -277,6 +309,16 @@ messageHandlers.set('dom.click', async ({ ref }) => {
     func: clickElement,
     args: [ref]
   });
+  
+  // Wait a bit for any popups to appear
+  await new Promise(resolve => setTimeout(resolve, 500));
+  
+  // Detect popups if enabled
+  if (detectPopups) {
+    const popupInfo = await detectPopupsInTab(activeTabId);
+    return popupInfo;
+  }
+  
   return {};
 });
 
@@ -474,7 +516,10 @@ messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => 
       
       // Detect popups if enabled
       if (detectPopups) {
+        // Wait a bit for popups to appear (they often load after page complete)
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const popupInfo = await detectPopupsInTab(activeTabId);
+        lastPopupDetection = popupInfo; // Store for later use
         return popupInfo;
       }
       return {};
@@ -487,7 +532,13 @@ messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => 
   
   // Detect popups if enabled
   if (detectPopups) {
+    console.log('[browser_navigate] Waiting for popups to appear...');
+    // Wait a bit for popups to appear (they often load after page complete)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    console.log('[browser_navigate] Calling detectPopupsInTab...');
     const popupInfo = await detectPopupsInTab(activeTabId);
+    console.log('[browser_navigate] Popup info received:', popupInfo);
+    lastPopupDetection = popupInfo; // Store for later use
     return popupInfo;
   }
   
@@ -496,13 +547,49 @@ messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => 
 
 // Helper function to detect popups in a tab
 async function detectPopupsInTab(tabId) {
+  console.log('[detectPopupsInTab] Starting popup detection for tab:', tabId);
+  
   try {
-    // Send message to content script to detect popups
+    // First try to send message to content script
     const response = await chrome.tabs.sendMessage(tabId, { type: 'detectPopups' });
+    console.log('[detectPopupsInTab] Got response from content script:', response);
     return response || {};
   } catch (error) {
-    console.error('Error detecting popups:', error);
-    return { error: 'Failed to detect popups' };
+    console.log('[detectPopupsInTab] Content script not loaded, error:', error.message);
+    console.log('[detectPopupsInTab] Injecting scripts...');
+    
+    // Inject required content scripts if not loaded
+    try {
+      // Inject popup detector first
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['popup-detector.js']
+      });
+      console.log('[detectPopupsInTab] Injected popup-detector.js');
+      
+      // Also inject other required scripts
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['element-tracker.js', 'element-validator.js', 'code-executor-safe.js', 'content.js']
+      });
+      console.log('[detectPopupsInTab] Injected all other scripts');
+      
+      // Wait a bit for scripts to initialize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Now try again
+      try {
+        const response = await chrome.tabs.sendMessage(tabId, { type: 'detectPopups' });
+        console.log('[detectPopupsInTab] Got response after injection:', response);
+        return response || {};
+      } catch (retryError) {
+        console.error('[detectPopupsInTab] Failed after injecting scripts:', retryError);
+        return { error: 'Failed to detect popups after injection', details: retryError.message };
+      }
+    } catch (injectError) {
+      console.error('[detectPopupsInTab] Failed to inject content scripts:', injectError);
+      return { error: 'Failed to inject content scripts', details: injectError.message };
+    }
   }
 }
 
@@ -1546,6 +1633,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // Handle messages from popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  console.log('[Background] Received message from content script:', request.type, 'from tab:', sender.tab?.id);
+  
   if (request.type === 'getStatus') {
     sendResponse({ connected: ws && ws.readyState === WebSocket.OPEN });
     return true;
@@ -1556,6 +1645,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ connected: ws && ws.readyState === WebSocket.OPEN });
     }, 500);
     return true; // Keep the message channel open for async response
+  } else if (request.type === 'POPUP_DETECTOR_READY') {
+    console.log('[Background] Popup detector ready on:', request.url);
+    sendResponse({ acknowledged: true });
+    return true;
   }
 });
 

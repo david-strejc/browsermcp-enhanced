@@ -45,25 +45,35 @@ class PopupDetector {
    * Start detection after navigation
    */
   async detectAfterNavigation() {
+    console.log('[PopupDetector] detectAfterNavigation() called at', new Date().toISOString());
+    console.log('[PopupDetector] Current URL:', window.location.href);
+    
     this.navigationStartTime = Date.now();
     this.detectedPopups = [];
     this.elementRefs.clear();
     this.currentCheckIndex = 0;
+    this.completed = false; // Reset the completed flag
     
     return new Promise((resolve) => {
+      console.log('[PopupDetector] Starting detection promise');
       this.resolveCallback = resolve;
       
       // Initial check
+      console.log('[PopupDetector] Running initial checkForPopups()');
       this.checkForPopups();
       
       // Set up mutation observer
+      console.log('[PopupDetector] Setting up mutation observer');
       this.startObserver();
       
       // Progressive checking
+      console.log('[PopupDetector] Scheduling progressive checks with intervals:', this.checkIntervals);
       this.scheduleNextCheck();
       
       // Timeout safety
+      console.log('[PopupDetector] Setting timeout safety at', this.maxTimeout, 'ms');
       setTimeout(() => {
+        console.log('[PopupDetector] Timeout reached, completing detection');
         this.complete();
       }, this.maxTimeout);
     });
@@ -73,23 +83,32 @@ class PopupDetector {
    * Check for popups using multiple heuristics
    */
   checkForPopups() {
+    console.log('[PopupDetector] checkForPopups() called at', Date.now() - this.navigationStartTime, 'ms after navigation');
     const popups = [];
     
     // 1. Check for aria-modal or dialog roles
     const dialogs = document.querySelectorAll('[aria-modal="true"], [role="dialog"], [role="alertdialog"]');
+    console.log('[PopupDetector] Found', dialogs.length, 'dialog/modal elements');
     dialogs.forEach(dialog => {
-      if (this.isBlockingElement(dialog)) {
+      const isBlocking = this.isBlockingElement(dialog);
+      console.log('[PopupDetector] Dialog element:', dialog.className, 'isBlocking:', isBlocking);
+      if (isBlocking) {
         popups.push(this.extractPopupInfo(dialog, 'aria_dialog'));
       }
     });
     
     // 2. Check for high z-index overlays
     const candidates = document.querySelectorAll('div, section, aside');
+    console.log('[PopupDetector] Checking', candidates.length, 'div/section/aside elements for high z-index');
     const sorted = Array.from(candidates)
       .filter(el => {
         const style = window.getComputedStyle(el);
-        return (style.position === 'fixed' || style.position === 'sticky') &&
-               parseInt(style.zIndex) > 999;
+        const zIndex = parseInt(style.zIndex) || 0;
+        const isCandidate = (style.position === 'fixed' || style.position === 'sticky') && zIndex > 999;
+        if (zIndex > 999) {
+          console.log('[PopupDetector] High z-index element found:', el.id || el.className, 'z-index:', zIndex, 'position:', style.position, 'is candidate:', isCandidate);
+        }
+        return isCandidate;
       })
       .sort((a, b) => {
         const aZ = parseInt(window.getComputedStyle(a).zIndex) || 0;
@@ -116,10 +135,51 @@ class PopupDetector {
       });
     });
     
-    // 4. Check if body has overflow hidden (modal indicator)
+    // 4. Check for consent iframes (common for GDPR/cookie popups)
+    const iframes = document.querySelectorAll('iframe');
+    console.log('[PopupDetector] Found', iframes.length, 'iframes');
+    iframes.forEach(iframe => {
+      const src = iframe.src || '';
+      const id = iframe.id || '';
+      const title = iframe.title || '';
+      
+      // Check if this looks like a consent/cookie popup iframe
+      if (src.includes('consent') || src.includes('privacy') || src.includes('cookie') ||
+          src.includes('sourcepoint') || src.includes('onetrust') || 
+          id.includes('sp_message') || id.includes('consent') || 
+          title.toLowerCase().includes('consent') || title.toLowerCase().includes('cookie')) {
+        
+        console.log('[PopupDetector] Found consent iframe:', { id, src: src.substring(0, 100), title });
+        
+        // Check if the iframe's parent container is visible and blocking
+        let container = iframe.parentElement;
+        while (container && container !== document.body) {
+          const style = window.getComputedStyle(container);
+          const zIndex = parseInt(style.zIndex) || 0;
+          
+          if (zIndex > 999) {
+            console.log('[PopupDetector] Found high z-index container for iframe:', {
+              containerId: container.id,
+              containerClass: container.className,
+              zIndex: zIndex,
+              visible: container.offsetParent !== null
+            });
+            
+            if (!popups.some(p => p.element === container)) {
+              popups.push(this.extractPopupInfo(container, 'consent_iframe_container'));
+            }
+            break;
+          }
+          container = container.parentElement;
+        }
+      }
+    });
+    
+    // 5. Check if body has overflow hidden (modal indicator)
     const bodyOverflow = window.getComputedStyle(document.body).overflow;
     const htmlOverflow = window.getComputedStyle(document.documentElement).overflow;
     if ((bodyOverflow === 'hidden' || htmlOverflow === 'hidden') && popups.length === 0) {
+      console.log('[PopupDetector] Body/html overflow is hidden, looking for modal');
       // Look for the most likely modal
       const modal = this.findLikelyModal();
       if (modal) {
@@ -128,13 +188,20 @@ class PopupDetector {
     }
     
     // Store new popups
+    console.log('[PopupDetector] Total popups found in this check:', popups.length);
     if (popups.length > 0) {
+      console.log('[PopupDetector] Popups detected:', popups.map(p => ({ type: p.type, hasElements: p.elements?.length || 0 })));
       this.detectedPopups = popups;
       
       // Check if we should stop waiting
-      if (this.hasSignificantPopup(popups)) {
+      const hasSignificant = this.hasSignificantPopup(popups);
+      console.log('[PopupDetector] Has significant popup:', hasSignificant);
+      if (hasSignificant) {
+        console.log('[PopupDetector] Significant popup found, completing early');
         this.complete();
       }
+    } else {
+      console.log('[PopupDetector] No popups found in this check');
     }
     
     return popups;
@@ -149,9 +216,22 @@ class PopupDetector {
     const rect = element.getBoundingClientRect();
     const viewportArea = window.innerWidth * window.innerHeight;
     const elementArea = rect.width * rect.height;
+    const coverage = elementArea / viewportArea;
+    
+    // Debug logging
+    if (coverage > 0.1) { // Log elements covering more than 10% for debugging
+      console.log('[PopupDetector] isBlockingElement check:', {
+        element: element.id || element.className?.substring(0, 50),
+        coverage: (coverage * 100).toFixed(2) + '%',
+        dimensions: `${rect.width}x${rect.height}`,
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        visible: element.offsetParent !== null
+      });
+    }
     
     // Check if covers >70% of viewport
-    if (elementArea / viewportArea > 0.7) {
+    if (coverage > 0.7) {
+      console.log('[PopupDetector] Element IS blocking (>70% coverage)');
       return true;
     }
     
@@ -372,11 +452,20 @@ class PopupDetector {
    * Check if we have a significant popup worth reporting
    */
   hasSignificantPopup(popups) {
-    return popups.some(p => 
-      p.type === 'cookie_consent' || 
-      p.elements.length > 0 ||
-      p.type === 'login'
-    );
+    // Consider ANY detected popup as significant for now
+    // We can filter later if needed
+    const isSignificant = popups.length > 0;
+    
+    // Log details
+    if (popups.length > 0) {
+      console.log('[PopupDetector] Popup significance check:', popups.map(p => ({
+        type: p.type,
+        elements: p.elements?.length || 0,
+        detectionMethod: p.detectionMethod
+      })));
+    }
+    
+    return isSignificant;
   }
   
   /**
@@ -427,6 +516,16 @@ class PopupDetector {
    * Complete detection
    */
   complete() {
+    // Prevent multiple calls to complete
+    if (this.completed) {
+      console.log('[PopupDetector] complete() already called, skipping');
+      return;
+    }
+    this.completed = true;
+    
+    console.log('[PopupDetector] complete() called, total time:', Date.now() - this.navigationStartTime, 'ms');
+    console.log('[PopupDetector] Final detected popups count:', this.detectedPopups.length);
+    
     // Clean up
     if (this.observer) {
       this.observer.disconnect();
@@ -451,8 +550,11 @@ class PopupDetector {
         }))
       };
       
+      console.log('[PopupDetector] Resolving with result:', result);
       this.resolveCallback(result);
       this.resolveCallback = null;
+    } else {
+      console.log('[PopupDetector] WARNING: No resolveCallback to call!');
     }
   }
   
@@ -516,11 +618,21 @@ class PopupDetector {
 window.__popupDetector = new PopupDetector();
 
 // Listen for messages from background script
+console.log('[PopupDetector] Setting up message listener...');
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  console.log('[PopupDetector] Received message:', message);
+  
   if (message.type === 'detectPopups') {
+    console.log('[PopupDetector] detectPopups message received, starting detection');
     window.__popupDetector.detectAfterNavigation()
-      .then(result => sendResponse(result))
-      .catch(error => sendResponse({ error: error.message }));
+      .then(result => {
+        console.log('[PopupDetector] Detection complete, sending response:', result);
+        sendResponse(result);
+      })
+      .catch(error => {
+        console.error('[PopupDetector] Detection error:', error);
+        sendResponse({ error: error.message });
+      });
     return true; // Keep channel open
   }
   
@@ -546,3 +658,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 console.log('[Popup Detector] Initialized');
+
+// Test message to background
+setTimeout(() => {
+  console.log('[PopupDetector] Sending test message to background...');
+  chrome.runtime.sendMessage({ type: 'POPUP_DETECTOR_READY', url: window.location.href }, response => {
+    console.log('[PopupDetector] Test message response:', response);
+  });
+}, 100);
