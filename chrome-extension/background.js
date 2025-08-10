@@ -166,12 +166,22 @@ messageHandlers.set('tabs.select', async ({ index }) => {
   return { success: false };
 });
 
-messageHandlers.set('tabs.new', async ({ url }) => {
+messageHandlers.set('tabs.new', async ({ url, detectPopups }) => {
   const tab = await chrome.tabs.create({ url: url || 'about:blank' });
   activeTabId = tab.id;
+  
+  let popupInfo = {};
+  
+  // If URL provided and popup detection enabled, wait and detect
+  if (url && detectPopups) {
+    await waitForTabComplete(tab.id);
+    popupInfo = await detectPopupsInTab(tab.id);
+  }
+  
   return { 
     tabId: String(tab.id), 
-    index: tab.index 
+    index: tab.index,
+    ...popupInfo
   };
 });
 
@@ -450,7 +460,7 @@ messageHandlers.set('page.navigate', async ({ url }) => {
 });
 
 // Add handlers for browser_* message types (MCP server compatibility)
-messageHandlers.set('browser_navigate', async ({ url }) => {
+messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => {
   // Get active tab if not set
   if (!activeTabId) {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -461,6 +471,12 @@ messageHandlers.set('browser_navigate', async ({ url }) => {
       const newTab = await chrome.tabs.create({ url });
       activeTabId = newTab.id;
       await waitForTabComplete(activeTabId);
+      
+      // Detect popups if enabled
+      if (detectPopups) {
+        const popupInfo = await detectPopupsInTab(activeTabId);
+        return popupInfo;
+      }
       return {};
     }
   }
@@ -468,8 +484,27 @@ messageHandlers.set('browser_navigate', async ({ url }) => {
   await chrome.tabs.update(activeTabId, { url });
   // Wait for navigation to complete
   await waitForTabComplete(activeTabId);
+  
+  // Detect popups if enabled
+  if (detectPopups) {
+    const popupInfo = await detectPopupsInTab(activeTabId);
+    return popupInfo;
+  }
+  
   return {};
 });
+
+// Helper function to detect popups in a tab
+async function detectPopupsInTab(tabId) {
+  try {
+    // Send message to content script to detect popups
+    const response = await chrome.tabs.sendMessage(tabId, { type: 'detectPopups' });
+    return response || {};
+  } catch (error) {
+    console.error('Error detecting popups:', error);
+    return { error: 'Failed to detect popups' };
+  }
+}
 
 // Helper function to wait for tab to finish loading
 async function waitForTabComplete(tabId, timeoutMs = 10000) {
@@ -534,6 +569,24 @@ messageHandlers.set('page.goBack', async () => {
   }
   
   return {};
+});
+
+// Handler for clicking popup elements
+messageHandlers.set('browser_click_popup', async ({ ref }) => {
+  if (!activeTabId) {
+    throw new Error('No active tab');
+  }
+  
+  try {
+    const response = await chrome.tabs.sendMessage(activeTabId, {
+      type: 'clickPopupElement',
+      ref
+    });
+    return response || { clicked: false };
+  } catch (error) {
+    console.error('Error clicking popup element:', error);
+    return { error: error.message };
+  }
 });
 
 messageHandlers.set('browser_go_back', async () => {
@@ -1539,7 +1592,7 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
   // Generate execution ID
   const executionId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     // Set timeout for execution - add small buffer for message round-trip
     const timeoutId = setTimeout(() => {
       // Try to abort execution
@@ -1556,10 +1609,45 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
     const useUnsafeMode = unsafe !== null ? unsafe : extensionConfig.unsafeMode;
     
     if (useUnsafeMode) {
-      console.warn('⚠️ Executing code in UNSAFE mode');
+      console.warn('⚠️ Executing code in UNSAFE mode - using chrome.scripting API');
+      
+      // For unsafe mode, use chrome.debugger to execute code (bypasses all CSP)
+      try {
+        // Attach debugger
+        await chrome.debugger.attach({ tabId: activeTabId }, "1.0");
+        
+        try {
+          // Execute code using Runtime.evaluate (bypasses CSP completely)
+          const result = await chrome.debugger.sendCommand(
+            { tabId: activeTabId }, 
+            "Runtime.evaluate", 
+            {
+              expression: code,
+              returnByValue: true,
+              awaitPromise: true
+            }
+          );
+          
+          if (result.exceptionDetails) {
+            throw new Error(`Runtime error: ${result.exceptionDetails.exception.description}`);
+          }
+          
+          const execResult = { result: result.result.value };
+          clearTimeout(timeoutId);
+          resolve(execResult);
+          return;
+        } finally {
+          // Always detach debugger
+          await chrome.debugger.detach({ tabId: activeTabId });
+        }
+      } catch (error) {
+        clearTimeout(timeoutId);
+        reject(error);
+        return;
+      }
     }
     
-    // Execute code
+    // Safe mode - use content script
     chrome.tabs.sendMessage(activeTabId, {
       type: 'execute.code',
       code: code,

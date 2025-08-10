@@ -226,9 +226,8 @@ function evaluateExpression(expr, api) {
   if (expr === 'null') return null;
   if (expr === 'undefined') return undefined;
   
-  // Default - return the expression as string
-  console.warn('[Code Executor Safe] Unknown expression:', expr);
-  return expr;
+  // For complex expressions, we need unsafe mode
+  throw new Error(`Expression too complex for safe mode: "${expr}". Use unsafe mode for arbitrary JavaScript.`);
 }
 
 // Execute code in safe mode by parsing API calls
@@ -277,7 +276,7 @@ async function executeSafeCode(code, signal) {
   let lastResult;
   
   for (const statement of statements) {
-    if (signal.aborted) throw new Error('Execution aborted');
+    if (signal && signal.aborted) throw new Error('Execution aborted');
     
     if (statement.startsWith('const ') || statement.startsWith('let ') || statement.startsWith('var ')) {
       // Variable declaration - skip for now
@@ -527,37 +526,61 @@ function executeObjectLiteral(expr, api) {
   return obj;
 }
 
-// Execute in sandbox (for unsafe mode) - using iframe
+// Execute in sandbox (for unsafe mode) - using Function constructor
 async function executeInSandbox(code, signal) {
-  // For CSP-restricted environments, we can't use eval
-  // So we'll execute in the page context directly but with warnings
-  console.warn('[Code Executor] Unsafe mode with CSP restrictions - limited execution');
+  console.log('[Code Executor] Unsafe mode execution');
   
   try {
-    // Try to execute simple expressions without eval
-    const trimmed = code.trim();
-    
-    // Handle document/window property access
-    if (trimmed === 'return document.title;' || trimmed === 'document.title') {
-      return document.title;
+    // Try Function constructor first (works in most CSP contexts except 'unsafe-eval')
+    try {
+      // Wrap code in an async function to support await
+      const AsyncFunction = (async function() {}).constructor;
+      const func = new AsyncFunction('window', 'document', 'console', 'chrome', code);
+      const result = await func(window, document, console, chrome);
+      return result;
+    } catch (funcError) {
+      console.warn('[Code Executor] Function constructor failed, trying alternative:', funcError.message);
+      
+      // Fallback: Create a script element (works unless CSP blocks inline scripts)
+      return await new Promise((resolve, reject) => {
+        const scriptId = 'exec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        
+        // Create a global callback for the script result
+        window[scriptId] = (result) => {
+          delete window[scriptId];
+          resolve(result);
+        };
+        
+        // Wrap the code to capture and return the result
+        const wrappedCode = `
+          (function() {
+            try {
+              const result = (function() {
+                ${code}
+              })();
+              window['${scriptId}'](result);
+            } catch (e) {
+              window['${scriptId}']({error: e.message});
+            }
+          })();
+        `;
+        
+        const script = document.createElement('script');
+        script.textContent = wrappedCode;
+        document.head.appendChild(script);
+        document.head.removeChild(script);
+        
+        // Timeout after 100ms
+        setTimeout(() => {
+          if (window[scriptId]) {
+            delete window[scriptId];
+            reject(new Error('Script execution timeout'));
+          }
+        }, 100);
+      });
     }
-    if (trimmed === 'return window.location.href;' || trimmed === 'window.location.href') {
-      return window.location.href;
-    }
-    if (trimmed === 'return document.body.innerHTML.length;') {
-      return document.body.innerHTML.length;
-    }
-    if (trimmed.startsWith('return typeof ')) {
-      const target = trimmed.substring(14).replace(';', '');
-      if (target === 'window') return 'object';
-      if (target === 'document') return 'object';
-      if (target === 'chrome') return typeof chrome;
-    }
-    
-    // For other unsafe code, we need to inform that eval is blocked
-    throw new Error('CSP blocks eval - cannot execute arbitrary JavaScript. Use safe mode API or predefined operations.');
-    
   } catch (error) {
+    console.error('[Code Executor] Unsafe execution failed:', error);
     throw error;
   }
 }

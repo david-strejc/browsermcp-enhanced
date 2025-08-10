@@ -62,10 +62,28 @@ export const browser_tab_new: Tool = {
   },
   handle: async (context, params) => {
     const response = await context.sendSocketMessage("tabs.new", { 
-      url: params?.url 
+      url: params?.url,
+      detectPopups: true 
     });
     
     let content = `New tab opened at index ${response.index}`;
+    
+    // Check if popups were detected
+    if (response && response.popupsDetected) {
+      content += '\n\n🔔 POPUP DETECTED!\n';
+      response.popups.forEach((popup: any, index: number) => {
+        content += `\nPopup ${index + 1}: ${popup.type}\n`;
+        content += `Text: ${popup.text?.slice(0, 200)}...\n`;
+        content += `\nInteractive elements:\n`;
+        popup.elements?.forEach((el: any) => {
+          content += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
+          if (el.checked !== undefined) {
+            content += `  Checked: ${el.checked}\n`;
+          }
+        });
+      });
+      content += `\nTo interact with popup, use browser_click with the ref ID.`;
+    }
     
     // Get SCAFFOLD snapshot if URL was provided
     if (params?.url) {
