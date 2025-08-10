@@ -22,22 +22,11 @@ export const navigate: ToolFactory = (snapshot) => ({
     const { url } = NavigateTool.shape.arguments.parse(params);
     const response = await context.sendSocketMessage("browser_navigate", { url, detectPopups: true });
     
-    // Check if popups were detected
+    // Simply report popup detection
     let popupInfo = '';
-    if (response && response.popupsDetected) {
-      popupInfo = `\n\n🔔 POPUP DETECTED!\n`;
-      response.popups.forEach((popup: any, index: number) => {
-        popupInfo += `\nPopup ${index + 1}: ${popup.type}\n`;
-        popupInfo += `Text: ${popup.text?.slice(0, 200)}...\n`;
-        popupInfo += `\nInteractive elements:\n`;
-        popup.elements?.forEach((el: any) => {
-          popupInfo += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
-          if (el.checked !== undefined) {
-            popupInfo += `  Checked: ${el.checked}\n`;
-          }
-        });
-      });
-      popupInfo += `\nTo interact with popup, use browser_click with the ref ID.`;
+    if (response && response.popupsDetected && response.popups && response.popups.length > 0) {
+      const popup = response.popups[0];
+      popupInfo = `\n\n[POPUP DETECTED: ${popup.containerSelector}]`;
     }
     
     if (snapshot) {

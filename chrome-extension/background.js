@@ -243,47 +243,11 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     // Add popup info if available
     let finalOutput = result.result;
     if (lastPopupDetection && lastPopupDetection.popupsDetected) {
-      finalOutput += '\n\n🔔 POPUP DETECTED!\n';
-      lastPopupDetection.popups.forEach((popup, index) => {
-        finalOutput += `\nPopup ${index + 1}:\n`;
-        finalOutput += `Selector: ${popup.containerSelector}\n`;
-        finalOutput += `Position: ${popup.position} | Z-Index: ${popup.zIndex}\n`;
-        finalOutput += `Size: ${popup.boundingRect.width}x${popup.boundingRect.height}\n`;
-        
-        if (popup.hasIframe) {
-          finalOutput += `Has iframe(s): ${popup.iframeSelectors.join(', ')}\n`;
-        }
-        
-        if (popup.hints) {
-          const hints = [];
-          if (popup.hints.looksLikeCookieConsent) hints.push('Cookie Consent');
-          if (popup.hints.isSourcepoint) hints.push('Sourcepoint');
-          if (popup.hints.isOneTrust) hints.push('OneTrust');
-          if (popup.hints.hasAcceptButton) hints.push('Has Accept');
-          if (popup.hints.hasRejectButton) hints.push('Has Reject');
-          if (hints.length > 0) {
-            finalOutput += `Type hints: ${hints.join(', ')}\n`;
-          }
-        }
-        
-        if (popup.visibleText && popup.visibleText.length > 0) {
-          finalOutput += `Text found: ${popup.visibleText.slice(0, 5).join(' | ')}\n`;
-        }
-      });
-      
-      finalOutput += '\n📌 To dismiss popup, use browser_execute_js with:\n';
-      finalOutput += '```javascript\n';
-      finalOutput += '// Remove the popup container\n';
-      if (lastPopupDetection.popups[0]) {
-        const selector = lastPopupDetection.popups[0].containerSelector;
-        finalOutput += `document.querySelector('${selector}')?.remove();\n\n`;
+      // Just append simple popup info
+      const popup = lastPopupDetection.popups[0];
+      if (popup) {
+        finalOutput += `\n\n[POPUP: ${popup.containerSelector}]`;
       }
-      finalOutput += '// Or click accept if visible\n';
-      finalOutput += `Array.from(document.querySelectorAll('button, a')).find(el => \n`;
-      finalOutput += `  /accept|agree|ok|continue/i.test(el.innerText))?.click();\n\n`;
-      finalOutput += '// Re-enable scrolling\n';
-      finalOutput += `document.body.style.overflow = 'auto';\n`;
-      finalOutput += '```';
       
       // Clear after using
       lastPopupDetection = null;
