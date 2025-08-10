@@ -370,6 +370,28 @@ class PopupDetector {
       elements.push(descriptor);
     });
     
+    // Check for iframes (common in consent management platforms)
+    const iframes = element.querySelectorAll('iframe');
+    let iframeInfo = null;
+    if (iframes.length > 0) {
+      console.log('[PopupDetector] Found iframes in popup:', iframes.length);
+      iframeInfo = {
+        count: iframes.length,
+        sources: Array.from(iframes).map(iframe => ({
+          src: iframe.src ? new URL(iframe.src).hostname : 'no-src',
+          id: iframe.id,
+          crossOrigin: iframe.src && !iframe.src.startsWith(window.location.origin)
+        }))
+      };
+      
+      // If we have a cross-origin iframe and no buttons, it's likely a consent platform
+      if (elements.length === 0 && iframeInfo.sources.some(s => s.crossOrigin)) {
+        console.log('[PopupDetector] Cross-origin iframe detected, likely consent platform');
+        // Store reference for later use
+        this.lastDetectedElement = element;
+      }
+    }
+    
     // Extract popup text (limited)
     const popupText = element.innerText?.slice(0, 2000) || '';
     
@@ -382,6 +404,7 @@ class PopupDetector {
       detectionMethod,
       elements,
       text: popupText,
+      iframeInfo,
       timestamp: Date.now() - this.navigationStartTime
     };
   }
@@ -499,6 +522,16 @@ class PopupDetector {
     
     if (lower.includes('ad') || lower.includes('advertisement') || lower.includes('sponsor')) {
       return 'advertisement';
+    }
+    
+    // Check for consent management platforms by container ID/class
+    if (elements.length === 0) {
+      const containerClasses = this.lastDetectedElement?.className || '';
+      const containerId = this.lastDetectedElement?.id || '';
+      if (containerId.includes('sp_message') || containerId.includes('sourcepoint') ||
+          containerClasses.includes('cmp') || containerClasses.includes('consent')) {
+        return 'consent_iframe_container';
+      }
     }
     
     return 'generic_modal';

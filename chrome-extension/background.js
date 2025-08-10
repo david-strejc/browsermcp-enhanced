@@ -246,14 +246,27 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
       finalOutput += '\n\n🔔 POPUP DETECTED!\n';
       lastPopupDetection.popups.forEach((popup, index) => {
         finalOutput += `\nPopup ${index + 1}: ${popup.type}\n`;
+        
+        // Show iframe info if present
+        if (popup.iframeInfo) {
+          finalOutput += `⚠️ Contains ${popup.iframeInfo.count} iframe(s) from: `;
+          finalOutput += popup.iframeInfo.sources.map(s => s.src).join(', ') + '\n';
+          if (popup.iframeInfo.sources.some(s => s.crossOrigin)) {
+            finalOutput += '❌ Cross-origin iframe - buttons cannot be extracted\n';
+          }
+        }
+        
         if (popup.text) {
           finalOutput += `Text: ${popup.text.slice(0, 200)}...\n`;
         }
+        
         if (popup.elements && popup.elements.length > 0) {
           finalOutput += '\nInteractive elements:\n';
           popup.elements.forEach(el => {
             finalOutput += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
           });
+        } else if (popup.iframeInfo && popup.iframeInfo.sources.some(s => s.crossOrigin)) {
+          finalOutput += '\n⚠️ Consent platform detected (cross-origin iframe)\n';
         } else {
           finalOutput += '\nNo interactive elements found in popup.\n';
         }
@@ -265,12 +278,16 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
       
       // Add sample fallback JavaScript
       finalOutput += '```javascript\n';
-      finalOutput += '// Remove cookie/consent popups\n';
-      finalOutput += `document.querySelectorAll('[class*="cookie"], [class*="consent"], [class*="modal"]').forEach(el => {\n`;
+      finalOutput += '// Method 1: Remove consent platform containers (Sourcepoint, OneTrust, etc.)\n';
+      finalOutput += `document.querySelectorAll('[id*="sp_message"], [id*="onetrust"], [class*="cmp"], [class*="consent"]').forEach(el => el.remove());\n\n`;
+      finalOutput += '// Method 2: Remove all fixed/modal popups\n';
+      finalOutput += `document.querySelectorAll('[class*="modal"], [class*="popup"], [role="dialog"]').forEach(el => {\n`;
       finalOutput += `  if (window.getComputedStyle(el).position === 'fixed') el.remove();\n`;
-      finalOutput += '});\n';
-      finalOutput += '// Re-enable scrolling\n';
+      finalOutput += '});\n\n';
+      finalOutput += '// Method 3: Re-enable scrolling\n';
       finalOutput += `document.body.style.overflow = 'auto';\n`;
+      finalOutput += `document.documentElement.style.overflow = 'auto';\n`;
+      finalOutput += `document.body.classList.remove('no-scroll', 'modal-open');\n`;
       finalOutput += '```';
       
       // Clear after using
