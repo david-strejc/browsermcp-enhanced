@@ -723,6 +723,15 @@ class PopupDetector {
   async tryDismissPopup(popup) {
     console.log('[PopupDetector] Trying to dismiss popup:', popup.type);
     
+    // Special handling for iframe-based consent platforms
+    if (popup.type === 'consent_iframe_container' && popup.iframeInfo) {
+      console.log('[PopupDetector] Attempting iframe consent platform dismissal');
+      const dismissed = await this.tryDismissIframeConsent(popup);
+      if (dismissed.success) {
+        return dismissed;
+      }
+    }
+    
     // Strategy 1: Look for accept/agree buttons (most common)
     const acceptButton = popup.elements.find(el => el.category === 'accept');
     if (acceptButton) {
@@ -800,6 +809,101 @@ class PopupDetector {
   }
   
   /**
+   * Try to dismiss iframe-based consent platforms
+   */
+  async tryDismissIframeConsent(popup) {
+    console.log('[PopupDetector] Trying iframe consent dismissal strategies');
+    
+    // Strategy 1: Try to click at common accept button positions
+    // Most consent platforms put accept button in bottom right or center
+    const positions = [
+      { x: window.innerWidth - 150, y: window.innerHeight - 100 }, // Bottom right
+      { x: window.innerWidth / 2, y: window.innerHeight - 100 },   // Bottom center
+      { x: window.innerWidth - 150, y: window.innerHeight / 2 },   // Middle right
+    ];
+    
+    for (const pos of positions) {
+      console.log(`[PopupDetector] Trying click at position: ${pos.x}, ${pos.y}`);
+      
+      // Create and dispatch click event at position
+      const clickEvent = new MouseEvent('click', {
+        view: window,
+        bubbles: true,
+        cancelable: true,
+        clientX: pos.x,
+        clientY: pos.y
+      });
+      
+      // Find element at position and click it
+      const element = document.elementFromPoint(pos.x, pos.y);
+      if (element) {
+        console.log('[PopupDetector] Found element at position:', element.tagName, element.id);
+        element.dispatchEvent(clickEvent);
+        
+        // Wait to see if popup disappears
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Check if popup still exists
+        if (!document.body.contains(popup.element)) {
+          console.log('[PopupDetector] Popup dismissed by position click!');
+          return { success: true, method: 'position_click', position: pos };
+        }
+      }
+    }
+    
+    // Strategy 2: Try to manipulate cookies directly for known platforms
+    if (popup.element.id && popup.element.id.includes('sp_message')) {
+      console.log('[PopupDetector] Detected Sourcepoint, trying cookie manipulation');
+      
+      // Set common consent cookies
+      try {
+        // Sourcepoint uses euconsent-v2 and other cookies
+        const consentString = 'CPxqlEAPxqlEAAGABCENDpCgAAAAAAAAADAiQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+        document.cookie = `euconsent-v2=${consentString}; path=/; max-age=31536000`;
+        document.cookie = `_sp_v1_consent=1!1:1:1:1; path=/; max-age=31536000`;
+        document.cookie = `_sp_enable_dfp_personalized_ads=true; path=/; max-age=31536000`;
+        
+        // Force reload to apply cookies
+        console.log('[PopupDetector] Cookies set, removing popup element');
+        popup.element.remove();
+        
+        // Re-enable scrolling
+        document.body.style.overflow = 'auto';
+        
+        return { success: true, method: 'cookie_manipulation' };
+      } catch (error) {
+        console.error('[PopupDetector] Cookie manipulation failed:', error);
+      }
+    }
+    
+    // Strategy 3: Send message to iframe (might work on same-origin or permissive iframes)
+    const iframes = popup.element.querySelectorAll('iframe');
+    for (const iframe of iframes) {
+      try {
+        // Try to post message to iframe
+        iframe.contentWindow.postMessage({
+          type: 'accept_all',
+          action: 'consent',
+          consent: true
+        }, '*');
+        
+        console.log('[PopupDetector] Posted consent message to iframe');
+        
+        // Wait for potential response
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        if (!document.body.contains(popup.element)) {
+          return { success: true, method: 'iframe_message' };
+        }
+      } catch (error) {
+        console.error('[PopupDetector] Iframe message failed:', error);
+      }
+    }
+    
+    return { success: false, method: 'iframe_consent_failed' };
+  }
+  
+  /**
    * Generate fallback JavaScript for manual popup dismissal
    */
   generateFallbackJS(popup) {
@@ -865,8 +969,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'detectPopups') {
     console.log('[PopupDetector] detectPopups message received, starting detection');
     window.__popupDetector.detectAfterNavigation()
-      .then(result => {
+      .then(async result => {
         console.log('[PopupDetector] Detection complete, sending response:', result);
+        
+        // Auto-dismiss if popups were detected
+        if (result.popupsDetected && result.popups.length > 0) {
+          console.log('[PopupDetector] Auto-dismissing detected popups...');
+          const dismissResults = await window.__popupDetector.autoDismissPopups();
+          result.autoDismissed = dismissResults;
+        }
+        
         sendResponse(result);
       })
       .catch(error => {

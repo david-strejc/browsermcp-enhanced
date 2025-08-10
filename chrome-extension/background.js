@@ -245,49 +245,44 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     if (lastPopupDetection && lastPopupDetection.popupsDetected) {
       finalOutput += '\n\n🔔 POPUP DETECTED!\n';
       lastPopupDetection.popups.forEach((popup, index) => {
-        finalOutput += `\nPopup ${index + 1}: ${popup.type}\n`;
+        finalOutput += `\nPopup ${index + 1}:\n`;
+        finalOutput += `Selector: ${popup.containerSelector}\n`;
+        finalOutput += `Position: ${popup.position} | Z-Index: ${popup.zIndex}\n`;
+        finalOutput += `Size: ${popup.boundingRect.width}x${popup.boundingRect.height}\n`;
         
-        // Show iframe info if present
-        if (popup.iframeInfo) {
-          finalOutput += `⚠️ Contains ${popup.iframeInfo.count} iframe(s) from: `;
-          finalOutput += popup.iframeInfo.sources.map(s => s.src).join(', ') + '\n';
-          if (popup.iframeInfo.sources.some(s => s.crossOrigin)) {
-            finalOutput += '❌ Cross-origin iframe - buttons cannot be extracted\n';
+        if (popup.hasIframe) {
+          finalOutput += `Has iframe(s): ${popup.iframeSelectors.join(', ')}\n`;
+        }
+        
+        if (popup.hints) {
+          const hints = [];
+          if (popup.hints.looksLikeCookieConsent) hints.push('Cookie Consent');
+          if (popup.hints.isSourcepoint) hints.push('Sourcepoint');
+          if (popup.hints.isOneTrust) hints.push('OneTrust');
+          if (popup.hints.hasAcceptButton) hints.push('Has Accept');
+          if (popup.hints.hasRejectButton) hints.push('Has Reject');
+          if (hints.length > 0) {
+            finalOutput += `Type hints: ${hints.join(', ')}\n`;
           }
         }
         
-        if (popup.text) {
-          finalOutput += `Text: ${popup.text.slice(0, 200)}...\n`;
-        }
-        
-        if (popup.elements && popup.elements.length > 0) {
-          finalOutput += '\nInteractive elements:\n';
-          popup.elements.forEach(el => {
-            finalOutput += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
-          });
-        } else if (popup.iframeInfo && popup.iframeInfo.sources.some(s => s.crossOrigin)) {
-          finalOutput += '\n⚠️ Consent platform detected (cross-origin iframe)\n';
-        } else {
-          finalOutput += '\nNo interactive elements found in popup.\n';
+        if (popup.visibleText && popup.visibleText.length > 0) {
+          finalOutput += `Text found: ${popup.visibleText.slice(0, 5).join(' | ')}\n`;
         }
       });
       
-      finalOutput += '\n📌 To dismiss popup:\n';
-      finalOutput += '1. Use browser_click with a ref ID above\n';
-      finalOutput += '2. Or use browser_execute_js with fallback JavaScript:\n\n';
-      
-      // Add sample fallback JavaScript
+      finalOutput += '\n📌 To dismiss popup, use browser_execute_js with:\n';
       finalOutput += '```javascript\n';
-      finalOutput += '// Method 1: Remove consent platform containers (Sourcepoint, OneTrust, etc.)\n';
-      finalOutput += `document.querySelectorAll('[id*="sp_message"], [id*="onetrust"], [class*="cmp"], [class*="consent"]').forEach(el => el.remove());\n\n`;
-      finalOutput += '// Method 2: Remove all fixed/modal popups\n';
-      finalOutput += `document.querySelectorAll('[class*="modal"], [class*="popup"], [role="dialog"]').forEach(el => {\n`;
-      finalOutput += `  if (window.getComputedStyle(el).position === 'fixed') el.remove();\n`;
-      finalOutput += '});\n\n';
-      finalOutput += '// Method 3: Re-enable scrolling\n';
+      finalOutput += '// Remove the popup container\n';
+      if (lastPopupDetection.popups[0]) {
+        const selector = lastPopupDetection.popups[0].containerSelector;
+        finalOutput += `document.querySelector('${selector}')?.remove();\n\n`;
+      }
+      finalOutput += '// Or click accept if visible\n';
+      finalOutput += `Array.from(document.querySelectorAll('button, a')).find(el => \n`;
+      finalOutput += `  /accept|agree|ok|continue/i.test(el.innerText))?.click();\n\n`;
+      finalOutput += '// Re-enable scrolling\n';
       finalOutput += `document.body.style.overflow = 'auto';\n`;
-      finalOutput += `document.documentElement.style.overflow = 'auto';\n`;
-      finalOutput += `document.body.classList.remove('no-scroll', 'modal-open');\n`;
       finalOutput += '```';
       
       // Clear after using
@@ -592,12 +587,12 @@ async function detectPopupsInTab(tabId) {
     
     // Inject required content scripts if not loaded
     try {
-      // Inject popup detector first
+      // Inject simple popup detector
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
-        files: ['popup-detector.js']
+        files: ['popup-detector-simple.js']
       });
-      console.log('[detectPopupsInTab] Injected popup-detector.js');
+      console.log('[detectPopupsInTab] Injected popup-detector-simple.js');
       
       // Also inject other required scripts
       await chrome.scripting.executeScript({
