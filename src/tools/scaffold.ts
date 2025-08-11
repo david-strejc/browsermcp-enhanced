@@ -1,4 +1,4 @@
-import zodToJsonSchema from "zod-to-json-schema";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 import type { Context } from "../context";
 import type { Tool } from "./tool";

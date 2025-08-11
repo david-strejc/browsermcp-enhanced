@@ -1,4 +1,5 @@
-import zodToJsonSchema from "zod-to-json-schema";
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { ErrorRecovery } from "../utils/error-recovery";
 
 import {
   ClickTool,
@@ -41,34 +42,49 @@ export const click: Tool = {
     inputSchema: zodToJsonSchema(ClickTool.shape.arguments),
   },
   handle: async (context: Context, params) => {
-    const validatedParams = ClickTool.shape.arguments.parse(params);
-    const response = await context.sendSocketMessage("dom.click", { ref: validatedParams.ref, detectPopups: true });
-    const snapshot = await captureAriaSnapshot(context);
-    
-    // Check if popups were detected after click
-    let popupInfo = '';
-    if (response && response.popupsDetected) {
-      popupInfo = '\n\n🔔 POPUP DETECTED AFTER CLICK!\n';
-      response.popups.forEach((popup: any, index: number) => {
-        popupInfo += `\nPopup ${index + 1}: ${popup.type}\n`;
-        popupInfo += `Text: ${popup.text?.slice(0, 200)}...\n`;
-        popupInfo += `\nInteractive elements:\n`;
-        popup.elements?.forEach((el: any) => {
-          popupInfo += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
+    try {
+      const validatedParams = ClickTool.shape.arguments.parse(params);
+      
+      // Use enhanced context messaging with error context
+      const response = await context.sendWithContext(
+        "dom.click",
+        { ref: validatedParams.ref, detectPopups: true },
+        `clicking element "${validatedParams.element}" with ref ${validatedParams.ref}`
+      );
+      
+      const snapshot = await captureAriaSnapshot(context);
+      
+      // Check if popups were detected after click
+      let popupInfo = '';
+      if (response && response.popupsDetected) {
+        popupInfo = '\n\n🔔 POPUP DETECTED AFTER CLICK!\n';
+        response.popups.forEach((popup: any, index: number) => {
+          popupInfo += `\nPopup ${index + 1}: ${popup.type}\n`;
+          popupInfo += `Text: ${popup.text?.slice(0, 200)}...\n`;
+          popupInfo += `\nInteractive elements:\n`;
+          popup.elements?.forEach((el: any) => {
+            popupInfo += `- [${el.ref}] ${el.type}: "${el.text}" (${el.category})\n`;
+          });
         });
-      });
-      popupInfo += '\nTo interact with popup, use browser_click with the ref ID.';
+        popupInfo += '\nTo interact with popup, use browser_click with the ref ID.';
+      }
+      
+      return {
+        content: [
+          {
+            type: "text",
+            text: `✅ Clicked "${validatedParams.element}"${popupInfo}`,
+          },
+          ...snapshot.content,
+        ],
+      };
+    } catch (error) {
+      return ErrorRecovery.handleToolError(
+        error as Error,
+        'browser_click',
+        params ? `element "${(params as any).element}" with ref ${(params as any).ref}` : undefined
+      );
     }
-    
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Clicked "${validatedParams.element}"${popupInfo}`,
-        },
-        ...snapshot.content,
-      ],
-    };
   },
 };
 

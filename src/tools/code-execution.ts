@@ -1,4 +1,4 @@
-import zodToJsonSchema from "zod-to-json-schema";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 import type { Context } from "../context";
 import type { Tool } from "./tool";
@@ -147,143 +147,164 @@ export const commonOperations: Tool = {
     // Pre-built scripts for common operations
     const operations: Record<string, string> = {
       hide_popups: `
-        // Hide common popup/modal elements
-        const popupSelectors = [
-          '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]',
-          '[class*="dialog"]', '[id*="modal"]', '[id*="popup"]',
-          '.cookie-banner', '#cookie-banner', '[class*="cookie"]'
-        ];
-        let hidden = 0;
-        popupSelectors.forEach(selector => {
-          hidden += api.hide(selector);
-        });
-        return { hidden: hidden, message: \`Hidden \${hidden} popup elements\` };
+        (function() {
+          // Hide common popup/modal elements
+          const popupSelectors = [
+            '[class*="modal"]', '[class*="popup"]', '[class*="overlay"]',
+            '[class*="dialog"]', '[id*="modal"]', '[id*="popup"]',
+            '.cookie-banner', '#cookie-banner', '[class*="cookie"]'
+          ];
+          let hidden = 0;
+          popupSelectors.forEach(selector => {
+            hidden += api.hide(selector);
+          });
+          return { hidden: hidden, message: 'Hidden ' + hidden + ' popup elements' };
+        })();
       `,
       
       remove_ads: `
-        // Remove common ad elements
-        const adSelectors = [
-          '[class*="ad-"]', '[class*="ads-"]', '[class*="advertisement"]',
-          '[id*="ad-"]', '[id*="ads-"]', 'iframe[src*="doubleclick"]',
-          'iframe[src*="googlesyndication"]', '.sponsored', '[data-ad]'
-        ];
-        let removed = 0;
-        adSelectors.forEach(selector => {
-          removed += api.hide(selector);
-        });
-        return { removed: removed, message: \`Removed \${removed} ad elements\` };
+        (function() {
+          // Remove common ad elements
+          const adSelectors = [
+            '[class*="ad-"]', '[class*="ads-"]', '[class*="advertisement"]',
+            '[id*="ad-"]', '[id*="ads-"]', 'iframe[src*="doubleclick"]',
+            'iframe[src*="googlesyndication"]', '.sponsored', '[data-ad]'
+          ];
+          let removed = 0;
+          adSelectors.forEach(selector => {
+            removed += api.hide(selector);
+          });
+          return { removed: removed, message: 'Removed ' + removed + ' ad elements' };
+        })();
       `,
       
       extract_all_text: `
-        // Extract all visible text from the page
-        const texts = api.$$('p, h1, h2, h3, h4, h5, h6, li, td, th, span, div')
-          .map(el => el.textContent?.trim())
-          .filter(text => text && text.length > 0);
-        return { 
-          totalElements: texts.length,
-          totalChars: texts.join(' ').length,
-          sample: texts.slice(0, 10),
-          full: texts.join('\\n')
-        };
+        (function() {
+          // Extract all visible text from the page
+          const texts = api.$$('p, h1, h2, h3, h4, h5, h6, li, td, th, span, div')
+            .map(el => el.textContent?.trim())
+            .filter(text => text && text.length > 0);
+          return { 
+            totalElements: texts.length,
+            totalChars: texts.join(' ').length,
+            sample: texts.slice(0, 10),
+            full: texts.join('\\n')
+          };
+        })();
       `,
       
       extract_all_links: `
-        // Extract all links from the page
-        return api.extractLinks('body');
+        (function() {
+          // Extract all links from the page
+          return api.extractLinks('body');
+        })();
       `,
       
       extract_all_images: `
-        // Extract all images from the page
-        const images = api.$$('img').map(img => ({
-          src: img.src,
-          alt: img.alt || '',
-          width: img.width,
-          height: img.height
-        }));
-        return { count: images.length, images: images };
+        (function() {
+          // Extract all images from the page
+          const images = api.$$('img').map(img => ({
+            src: img.src,
+            alt: img.alt || '',
+            width: img.width,
+            height: img.height
+          }));
+          return { count: images.length, images: images };
+        })();
       `,
       
       highlight_interactive: `
-        // Highlight all interactive elements
-        const style = document.createElement('style');
-        style.textContent = \`
-          .mcp-highlight {
-            outline: 2px solid red !important;
-            outline-offset: 2px !important;
-          }
-        \`;
-        document.head.appendChild(style);
-        
-        const interactive = api.$$('a, button, input, select, textarea, [role="button"], [onclick]');
-        interactive.forEach(el => el.classList.add('mcp-highlight'));
-        
-        return { 
-          highlighted: interactive.length,
-          message: \`Highlighted \${interactive.length} interactive elements\`
-        };
+        (function() {
+          // Highlight all interactive elements
+          const style = document.createElement('style');
+          style.textContent = \`
+            .mcp-highlight {
+              outline: 2px solid red !important;
+              outline-offset: 2px !important;
+            }
+          \`;
+          document.head.appendChild(style);
+          
+          const interactive = api.$$('a, button, input, select, textarea, [role="button"], [onclick]');
+          interactive.forEach(el => el.classList.add('mcp-highlight'));
+          
+          return { 
+            highlighted: interactive.length,
+            message: 'Highlighted ' + interactive.length + ' interactive elements'
+          };
+        })();
       `,
       
       auto_fill_form: `
-        // Auto-fill form with test data
-        const filled = [];
-        
-        // Fill text inputs
-        api.$$('input[type="text"], input:not([type])').forEach((input, i) => {
-          const name = input.name || input.id || \`field\${i}\`;
-          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, \`Test \${name}\`);
-          filled.push(name);
-        });
-        
-        // Fill email inputs
-        api.$$('input[type="email"]').forEach(input => {
-          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, 'test@example.com');
-          filled.push(input.name || input.id);
-        });
-        
-        // Fill tel inputs
-        api.$$('input[type="tel"]').forEach(input => {
-          api.setValue(\`#\${input.id || \`[name="\${input.name}"]\`}\`, '555-0123');
-          filled.push(input.name || input.id);
-        });
-        
-        return { filled: filled, count: filled.length };
+        (function() {
+          // Auto-fill form with test data
+          const filled = [];
+          
+          // Fill text inputs
+          api.$$('input[type="text"], input:not([type])').forEach((input, i) => {
+            const name = input.name || input.id || ('field' + i);
+            const selector = input.id ? ('#' + input.id) : ('[name="' + input.name + '"]');
+            api.setValue(selector, 'Test ' + name);
+            filled.push(name);
+          });
+          
+          // Fill email inputs
+          api.$$('input[type="email"]').forEach(input => {
+            const selector = input.id ? ('#' + input.id) : ('[name="' + input.name + '"]');
+            api.setValue(selector, 'test@example.com');
+            filled.push(input.name || input.id);
+          });
+          
+          // Fill tel inputs
+          api.$$('input[type="tel"]').forEach(input => {
+            const selector = input.id ? ('#' + input.id) : ('[name="' + input.name + '"]');
+            api.setValue(selector, '555-0123');
+            filled.push(input.name || input.id);
+          });
+          
+          return { filled: filled, count: filled.length };
+        })();
       `,
       
       scroll_to_bottom: `
-        // Scroll to the bottom of the page
-        window.scrollTo(0, document.body.scrollHeight);
-        await api.wait(500);
-        return { 
-          scrolled: true, 
-          height: document.body.scrollHeight,
-          message: 'Scrolled to bottom of page'
-        };
+        (async function() {
+          // Scroll to the bottom of the page
+          window.scrollTo(0, document.body.scrollHeight);
+          await api.wait(500);
+          return { 
+            scrolled: true, 
+            height: document.body.scrollHeight,
+            message: 'Scrolled to bottom of page'
+          };
+        })();
       `,
       
       expand_all_sections: `
-        // Expand all collapsible sections
-        const expanded = [];
-        
-        // Click all elements with expand-like attributes
-        const expandSelectors = [
-          '[aria-expanded="false"]',
-          '.collapsed',
-          '[class*="expand"]',
-          '[class*="toggle"]',
-          'summary'
-        ];
-        
-        expandSelectors.forEach(selector => {
-          api.$$(selector).forEach(el => {
-            el.click();
-            expanded.push(el.tagName);
+        (function() {
+          // Expand all collapsible sections
+          const expanded = [];
+          
+          // Click all elements with expand-like attributes
+          const expandSelectors = [
+            '[aria-expanded="false"]',
+            '.collapsed',
+            '[class*="expand"]',
+            '[class*="toggle"]',
+            'summary'
+          ];
+          
+          expandSelectors.forEach(selector => {
+            api.$$(selector).forEach(el => {
+              el.click();
+              expanded.push(el.tagName);
+            });
           });
-        });
-        
-        return { 
-          expanded: expanded.length,
-          message: \`Expanded \${expanded.length} sections\`
-        };
+          
+          return { 
+            expanded: expanded.length,
+            message: 'Expanded ' + expanded.length + ' sections'
+          };
+        })();
       `
     };
     
