@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BrowserMCP Enhanced Test Elements - Challenging Edge Cases</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        /* Challenging Elements Styles */
+        .iframe-container {
+            border: 2px solid #ccc;
+            border-radius: 8px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .canvas-container {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        
+        .drag-drop-zone {
+            border: 3px dashed #007bff;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin: 20px 0;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .drag-drop-zone.dragover {
+            border-color: #28a745;
+            background-color: rgba(40, 167, 69, 0.1);
+            transform: scale(1.05);
+        }
+        
+        .loading-spinner {
+            display: none;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .floating-element {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff6b6b;
+            color: white;
+            padding: 15px;
+            border-radius: 50px;
+            box-shadow: 0 4px 20px rgba(255, 107, 107, 0.4);
+            z-index: 1000;
+            animation: float 3s ease-in-out infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+        
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 10px;
+            border-bottom: 2px solid #007bff;
+            margin-bottom: 20px;
+            z-index: 100;
+        }
+        
+        .contenteditable-area {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 100px;
+            background: #f8f9fa;
+            outline: none;
+        }
+        
+        .contenteditable-area:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.25);
+        }
+        
+        .form-validation {
+            margin-top: 5px;
+            font-size: 14px;
+        }
+        
+        .form-validation.valid {
+            color: #28a745;
+        }
+        
+        .form-validation.invalid {
+            color: #dc3545;
+        }
+        
+        .live-region {
+            border: 2px solid #17a2b8;
+            border-radius: 8px;
+            padding: 15px;
+            background: rgba(23, 162, 184, 0.1);
+            margin: 10px 0;
+        }
+        
+        .context-menu {
+            display: none;
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 150px;
+        }
+        
+        .context-menu-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .context-menu-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .context-menu-item:last-child {
+            border-bottom: none;
+        }
+        
+        .virtual-scroll {
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        
+        .virtual-scroll-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            height: 50px;
+        }
+        
+        .virtual-scroll-item:nth-child(odd) {
+            background: #f8f9fa;
+        }
+        
+        .shadow-host {
+            border: 2px solid #6f42c1;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin: 20px auto;
+        }
+        
+        .audio-container {
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .notification-demo {
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .fullscreen-demo {
+            background: #343a40;
+            color: white;
+            padding: 40px;
+            text-align: center;
+            border-radius: 8px;
+        }
+        
+        .geolocation-demo {
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            background: rgba(255, 193, 7, 0.1);
+        }
+        
+        .infinite-scroll {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        
+        .infinite-scroll-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            transition: background 0.3s;
+        }
+        
+        .infinite-scroll-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .responsive-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .grid-item {
+            background: #e9ecef;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            .grid-item {
+                background: #ffc107;
+            }
+        }
+        
+        .print-only {
+            display: none;
+        }
+        
+        @media print {
+            .print-only {
+                display: block;
+            }
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="floating-element">
+        🚀 Floating Element
+    </div>
+
+    <div class="sticky-header">
+        <h1>BrowserMCP Enhanced Test Elements - Challenging Edge Cases</h1>
+        <p>This page tests advanced web elements and edge cases that challenge browser automation tools.</p>
+    </div>
+
+    <!-- Iframe Elements -->
+    <div class="section">
+        <h2>🖼️ iFrame Elements</h2>
+        
+        <h3>Same-Origin iFrame</h3>
+        <div class="iframe-container">
+            <iframe id="sameOriginFrame" src="data:text/html,<html><body style='font-family: Arial; padding: 20px;'><h2>Same-Origin iFrame Content</h2><input type='text' placeholder='Input inside iframe' id='iframeInput'><button onclick='alert(\"iframe button clicked!\")'>Click Me in iFrame</button><p>This iframe contains interactive elements that should be accessible to automation tools.</p></body></html>" 
+                width="100%" height="200" frameborder="0"></iframe>
+        </div>
+
+        <h3>Cross-Origin iFrame (External)</h3>
+        <div class="iframe-container">
+            <iframe id="crossOriginFrame" src="https://www.example.com" width="100%" height="200" frameborder="0"></iframe>
+        </div>
+
+        <h3>Sandbox iFrame</h3>
+        <div class="iframe-container">
+            <iframe id="sandboxFrame" 
+                src="data:text/html,<html><body style='padding: 20px;'><h3>Sandboxed iFrame</h3><p>This iframe has restricted permissions.</p><button disabled>Disabled Button</button></body></html>"
+                sandbox="allow-same-origin"
+                width="100%" height="150" frameborder="0"></iframe>
+        </div>
+    </div>
+
+    <!-- Canvas Elements -->
+    <div class="section">
+        <h2>🎨 Canvas & Graphics</h2>
+        <div class="canvas-container">
+            <h3>Interactive Canvas</h3>
+            <canvas id="drawingCanvas" width="600" height="300" style="border: 1px solid #ddd; border-radius: 4px;"></canvas>
+            <div style="margin-top: 10px;">
+                <button id="clearCanvas">Clear Canvas</button>
+                <button id="drawCircle">Draw Circle</button>
+                <button id="drawRectangle">Draw Rectangle</button>
+                <input type="color" id="canvasColor" value="#ff0000">
+                <label for="canvasColor">Color</label>
+            </div>
+        </div>
+
+        <div class="canvas-container" style="margin-top: 20px;">
+            <h3>SVG Interactive Graphics</h3>
+            <svg id="interactiveSVG" width="400" height="200" style="border: 1px solid #ddd;">
+                <circle id="svgCircle" cx="100" cy="100" r="30" fill="#007bff" style="cursor: pointer;"></circle>
+                <rect id="svgRect" x="200" y="70" width="60" height="60" fill="#28a745" style="cursor: pointer;"></rect>
+                <text x="50" y="180" fill="#dc3545">Click the shapes!</text>
+            </svg>
+        </div>
+    </div>
+
+    <!-- Media Elements -->
+    <div class="section">
+        <h2>📹 Media Elements</h2>
+        
+        <div class="video-container">
+            <h3>Video with Controls</h3>
+            <video id="testVideo" controls width="100%">
+                <source src="data:video/mp4;base64,AAAAHGZ0eXBpc29tAAACAGlzb21pc28ybXA0MQAAAAhmcmVlAAAAG21kYXQAAAGzABAHAAABthADAowdbb9/AAAC6W1vb3YAAABsbXZoZAAAAAB8JbCAfCWwgAAAA+gAAAAAAAEAAAEAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAIVdHJhawAAAFx0a2hkAAAAD3wlsIB8JbCAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAQAAAAAALuAAAC7gAAAAAACRlZHRzAAAAHGVsc3QAAAAAAAAAAQAAAAAAAAAEAAAAAAAAAAAH" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div style="margin-top: 10px;">
+                <button id="playVideo">Play</button>
+                <button id="pauseVideo">Pause</button>
+                <button id="muteVideo">Mute/Unmute</button>
+                <input type="range" id="volumeControl" min="0" max="1" step="0.1" value="1">
+                <label for="volumeControl">Volume</label>
+            </div>
+        </div>
+
+        <div class="audio-container">
+            <h3>Audio with Custom Controls</h3>
+            <audio id="testAudio" preload="metadata">
+                <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvGIdBSyHz/jBbCkEMozI9dWOOAIhcM/g52EUBGyHzPjBai4EKYjI+eGMSQAAAHEJAAFVgAAAAIDRqfGiSSIKLYzL7seJNwIrbMzd5l8OBG2GyfvieDIGOo3I7diAFgsdYsjU4V8UBGyAyPvcfT8GKI3G7dF+EQURdtfb4VMVBGmIx+7TcygFJ4nG896NRgIYbtfU22MLBHGHzPrbhDMGLo/D9NyGRQILdsnn3JMpBySO0NrXggkGDojW2NAFM3QFBQAAUHAAAD55h4iqrqyUYjQwXaOj1K5hHgU+ltf72k8oIjOOztXiRgsBAVaI1/rBjTEGLH/F8+2PSwAFdNfb42U2CSmFyvrHiTgCG23H8tuBFQkbc8Xz1HIhBUvG4OfQnGEhCT2P0fPbgBcHH2/K892JOgUmbc3y3FUAUwAAAUgRAABQIQAACb8mJrb87XnIKAMUZ7nt458pBi+P1u3OdyMGJHfJ8tOONggadbno63U8BiGKze/aiyAHJ43I6dKBJgUth9nfyXkgBDqHy+7MeTgEJH3F8t+CTgMZadXx5G8+CiaKzuzczJvSjwIjdczs2nYsBC2H1OjHjS4GJXLFfg+TQgMBUs/k31HHZQACCbvq8Y5JGwaGzezajykIKoXF89V9LwYpj8n42o03AhFqze7gQggaAVOI2fjBgCcGK4jKp9qFEA0JdPb131kWBmiFyffcfDsBJ5DI+OGISwcBVK/f0VkWBGaGy/HdX0AEL47G892QQgIKIc\+" type="audio/wav">
+                Your browser does not support the audio tag.
+            </audio>
+            <div>
+                <button id="playAudio">▶️ Play</button>
+                <button id="pauseAudio">⏸️ Pause</button>
+                <button id="stopAudio">⏹️ Stop</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced File Upload -->
+    <div class="section">
+        <h2>📁 Advanced File Upload</h2>
+        
+        <div class="drag-drop-zone" id="fileDropZone">
+            <div>
+                <h3>📤 Drag & Drop File Zone</h3>
+                <p>Drag files here or click to select</p>
+                <input type="file" id="hiddenFileInput" multiple style="display: none;">
+                <button id="selectFilesBtn">Select Files</button>
+            </div>
+            <div id="fileList" style="margin-top: 20px; text-align: left;"></div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <label for="imageUpload">Image Upload with Preview:</label>
+            <input type="file" id="imageUpload" accept="image/*">
+            <div id="imagePreview" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <!-- Contenteditable -->
+    <div class="section">
+        <h2>✏️ Rich Text Editing</h2>
+        
+        <h3>Contenteditable Area</h3>
+        <div class="contenteditable-area" contenteditable="true" id="richTextEditor" placeholder="Start typing here...">
+            <p>This is a <strong>contenteditable</strong> area. You can:</p>
+            <ul>
+                <li>Type and edit text</li>
+                <li>Use <em>formatting</em></li>
+                <li>Create lists</li>
+                <li>And more!</li>
+            </ul>
+        </div>
+        
+        <div style="margin-top: 10px;">
+            <button id="boldText">Bold</button>
+            <button id="italicText">Italic</button>
+            <button id="underlineText">Underline</button>
+            <button id="insertLink">Insert Link</button>
+            <button id="clearFormatting">Clear Formatting</button>
+        </div>
+    </div>
+
+    <!-- Form Validation -->
+    <div class="section">
+        <h2>✅ Form Validation</h2>
+        
+        <form id="validationForm" novalidate>
+            <div style="margin-bottom: 15px;">
+                <label for="emailValidation">Email (required):</label>
+                <input type="email" id="emailValidation" required>
+                <div class="form-validation" id="emailValidation-error"></div>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="passwordValidation">Password (min 8 chars):</label>
+                <input type="password" id="passwordValidation" minlength="8" required>
+                <div class="form-validation" id="passwordValidation-error"></div>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="confirmPassword">Confirm Password:</label>
+                <input type="password" id="confirmPassword" required>
+                <div class="form-validation" id="confirmPassword-error"></div>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label for="phoneValidation">Phone Number:</label>
+                <input type="tel" id="phoneValidation" pattern="[0-9]{3}-[0-9]{3}-[0-9]{4}" placeholder="123-456-7890">
+                <div class="form-validation" id="phoneValidation-error"></div>
+            </div>
+            
+            <button type="submit" id="validateSubmit">Submit Form</button>
+        </form>
+    </div>
+
+    <!-- ARIA Live Regions -->
+    <div class="section">
+        <h2>♿ ARIA Live Regions</h2>
+        
+        <div>
+            <button id="updateLiveRegion">Update Live Region</button>
+            <button id="updateAlertRegion">Trigger Alert</button>
+            <button id="updateStatusRegion">Update Status</button>
+        </div>
+        
+        <div class="live-region" aria-live="polite" id="politeRegion">
+            <h3>Polite Live Region</h3>
+            <p>Status: Ready</p>
+        </div>
+        
+        <div class="live-region" aria-live="assertive" id="assertiveRegion">
+            <h3>Assertive Live Region</h3>
+            <p>Alert: No alerts</p>
+        </div>
+        
+        <div class="live-region" role="status" aria-live="polite" id="statusRegion">
+            <h3>Status Region</h3>
+            <p>Current status: Idle</p>
+        </div>
+    </div>
+
+    <!-- Loading States -->
+    <div class="section">
+        <h2>⏳ Loading States & Async Content</h2>
+        
+        <div>
+            <button id="loadAsync">Load Async Content</button>
+            <button id="simulateError">Simulate Error</button>
+            <button id="loadWithProgress">Load with Progress</button>
+        </div>
+        
+        <div class="loading-spinner" id="loadingSpinner"></div>
+        
+        <div id="asyncContent" style="margin-top: 20px;">
+            <p>Click button above to load content dynamically.</p>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <label for="progressBar">Loading Progress:</label>
+            <progress id="progressBar" value="0" max="100" style="width: 100%;"></progress>
+            <span id="progressText">0%</span>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="section">
+        <h2>🖱️ Context Menu</h2>
+        
+        <div id="contextMenuArea" style="background: #f8f9fa; padding: 30px; border: 1px solid #ddd; border-radius: 8px; text-align: center; cursor: pointer;">
+            <h3>Right-click me for custom context menu!</h3>
+            <p>This demonstrates custom context menu interactions.</p>
+        </div>
+        
+        <div class="context-menu" id="customContextMenu">
+            <div class="context-menu-item" data-action="copy">📋 Copy</div>
+            <div class="context-menu-item" data-action="paste">📥 Paste</div>
+            <div class="context-menu-item" data-action="delete">🗑️ Delete</div>
+            <div class="context-menu-item" data-action="properties">⚙️ Properties</div>
+        </div>
+    </div>
+
+    <!-- Virtual Scrolling -->
+    <div class="section">
+        <h2>📜 Virtual & Infinite Scrolling</h2>
+        
+        <h3>Virtual Scroll Container</h3>
+        <div class="virtual-scroll" id="virtualScrollContainer">
+            <!-- Items will be generated dynamically -->
+        </div>
+        
+        <h3>Infinite Scroll</h3>
+        <div class="infinite-scroll" id="infiniteScrollContainer">
+            <!-- Items will be loaded dynamically -->
+        </div>
+        <button id="loadMoreItems">Load More Items</button>
+    </div>
+
+    <!-- Shadow DOM -->
+    <div class="section">
+        <h2>🌓 Shadow DOM & Web Components</h2>
+        
+        <div class="shadow-host" id="shadowHost">
+            <h3>Shadow DOM Host</h3>
+            <p>This element contains shadow DOM content that may be challenging to access.</p>
+        </div>
+        
+        <custom-element id="webComponent" data-title="Custom Web Component">
+            <p>This is a custom web component with shadow DOM.</p>
+        </custom-element>
+    </div>
+
+    <!-- Browser APIs -->
+    <div class="section">
+        <h2>🌐 Browser API Interactions</h2>
+        
+        <div class="notification-demo">
+            <h3>Notifications</h3>
+            <button id="requestNotification">Request Notification Permission</button>
+            <button id="showNotification">Show Notification</button>
+        </div>
+        
+        <div class="fullscreen-demo">
+            <h3>Fullscreen API</h3>
+            <button id="enterFullscreen">Enter Fullscreen</button>
+            <button id="exitFullscreen">Exit Fullscreen</button>
+        </div>
+        
+        <div class="geolocation-demo">
+            <h3>Geolocation</h3>
+            <button id="getLocation">Get Current Location</button>
+            <div id="locationResult"></div>
+        </div>
+    </div>
+
+    <!-- Responsive Design -->
+    <div class="section">
+        <h2>📱 Responsive Design Testing</h2>
+        
+        <div class="responsive-grid">
+            <div class="grid-item">Grid Item 1<br><small>Changes color on mobile</small></div>
+            <div class="grid-item">Grid Item 2<br><small>Auto-responsive layout</small></div>
+            <div class="grid-item">Grid Item 3<br><small>CSS Grid magic</small></div>
+            <div class="grid-item">Grid Item 4<br><small>Adapts to screen size</small></div>
+        </div>
+    </div>
+
+    <!-- Print Styles -->
+    <div class="section no-print">
+        <h2>🖨️ Print Media</h2>
+        <button id="printPage">Print This Page</button>
+        <p>This section will be hidden when printing.</p>
+    </div>
+    
+    <div class="section print-only">
+        <h2>Print Version</h2>
+        <p>This content only appears when printing!</p>
+    </div>
+
+    <script>
+        // Enhanced JavaScript for all interactive elements
+        
+        // Canvas Drawing
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        
+        function startDrawing(e) {
+            isDrawing = true;
+            draw(e);
+        }
+        
+        function draw(e) {
+            if (!isDrawing) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = document.getElementById('canvasColor').value;
+            
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+        
+        function stopDrawing() {
+            isDrawing = false;
+            ctx.beginPath();
+        }
+        
+        // Canvas controls
+        document.getElementById('clearCanvas').addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+        
+        document.getElementById('drawCircle').addEventListener('click', () => {
+            ctx.beginPath();
+            ctx.arc(300, 150, 50, 0, 2 * Math.PI);
+            ctx.fillStyle = document.getElementById('canvasColor').value;
+            ctx.fill();
+        });
+        
+        document.getElementById('drawRectangle').addEventListener('click', () => {
+            ctx.fillStyle = document.getElementById('canvasColor').value;
+            ctx.fillRect(200, 100, 100, 80);
+        });
+        
+        // SVG Interactions
+        document.getElementById('svgCircle').addEventListener('click', (e) => {
+            e.target.setAttribute('fill', '#' + Math.floor(Math.random()*16777215).toString(16));
+        });
+        
+        document.getElementById('svgRect').addEventListener('click', (e) => {
+            e.target.setAttribute('fill', '#' + Math.floor(Math.random()*16777215).toString(16));
+        });
+        
+        // File Upload with Drag & Drop
+        const fileDropZone = document.getElementById('fileDropZone');
+        const hiddenFileInput = document.getElementById('hiddenFileInput');
+        const fileList = document.getElementById('fileList');
+        
+        fileDropZone.addEventListener('click', () => hiddenFileInput.click());
+        fileDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            fileDropZone.classList.add('dragover');
+        });
+        
+        fileDropZone.addEventListener('dragleave', () => {
+            fileDropZone.classList.remove('dragover');
+        });
+        
+        fileDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            fileDropZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        
+        hiddenFileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+        });
+        
+        function handleFiles(files) {
+            fileList.innerHTML = '<h4>Selected Files:</h4>';
+            Array.from(files).forEach(file => {
+                const fileDiv = document.createElement('div');
+                fileDiv.innerHTML = `📁 ${file.name} (${(file.size/1024).toFixed(2)} KB)`;
+                fileList.appendChild(fileDiv);
+            });
+        }
+        
+        // Image Preview
+        document.getElementById('imageUpload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const preview = document.getElementById('imagePreview');
+            
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    preview.innerHTML = `<img src="${e.target.result}" style="max-width: 200px; max-height: 200px; border-radius: 8px;">`;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Rich Text Editor
+        const richTextEditor = document.getElementById('richTextEditor');
+        
+        document.getElementById('boldText').addEventListener('click', () => {
+            document.execCommand('bold', false, null);
+        });
+        
+        document.getElementById('italicText').addEventListener('click', () => {
+            document.execCommand('italic', false, null);
+        });
+        
+        document.getElementById('underlineText').addEventListener('click', () => {
+            document.execCommand('underline', false, null);
+        });
+        
+        document.getElementById('insertLink').addEventListener('click', () => {
+            const url = prompt('Enter URL:');
+            if (url) document.execCommand('createLink', false, url);
+        });
+        
+        document.getElementById('clearFormatting').addEventListener('click', () => {
+            document.execCommand('removeFormat', false, null);
+        });
+        
+        // Form Validation
+        const validationForm = document.getElementById('validationForm');
+        const emailInput = document.getElementById('emailValidation');
+        const passwordInput = document.getElementById('passwordValidation');
+        const confirmPasswordInput = document.getElementById('confirmPassword');
+        const phoneInput = document.getElementById('phoneValidation');
+        
+        function validateField(field, validator, message) {
+            const errorDiv = document.getElementById(field.id + '-error');
+            const isValid = validator(field.value);
+            
+            if (isValid) {
+                errorDiv.textContent = '✅ Valid';
+                errorDiv.className = 'form-validation valid';
+                field.style.borderColor = '#28a745';
+            } else {
+                errorDiv.textContent = '❌ ' + message;
+                errorDiv.className = 'form-validation invalid';
+                field.style.borderColor = '#dc3545';
+            }
+            
+            return isValid;
+        }
+        
+        emailInput.addEventListener('input', () => {
+            validateField(emailInput, 
+                val => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val),
+                'Please enter a valid email address'
+            );
+        });
+        
+        passwordInput.addEventListener('input', () => {
+            validateField(passwordInput,
+                val => val.length >= 8,
+                'Password must be at least 8 characters'
+            );
+        });
+        
+        confirmPasswordInput.addEventListener('input', () => {
+            validateField(confirmPasswordInput,
+                val => val === passwordInput.value,
+                'Passwords do not match'
+            );
+        });
+        
+        phoneInput.addEventListener('input', () => {
+            validateField(phoneInput,
+                val => /^[0-9]{3}-[0-9]{3}-[0-9]{4}$/.test(val) || val === '',
+                'Please use format: 123-456-7890'
+            );
+        });
+        
+        validationForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            alert('Form validation demo - all fields checked!');
+        });
+        
+        // ARIA Live Regions
+        let updateCounter = 1;
+        
+        document.getElementById('updateLiveRegion').addEventListener('click', () => {
+            document.querySelector('#politeRegion p').textContent = `Status: Updated ${updateCounter++}`;
+        });
+        
+        document.getElementById('updateAlertRegion').addEventListener('click', () => {
+            document.querySelector('#assertiveRegion p').textContent = `Alert: Alert triggered at ${new Date().toLocaleTimeString()}`;
+        });
+        
+        document.getElementById('updateStatusRegion').addEventListener('click', () => {
+            document.querySelector('#statusRegion p').textContent = `Current status: Processing... ${Math.random().toFixed(3)}`;
+        });
+        
+        // Async Content Loading
+        document.getElementById('loadAsync').addEventListener('click', async () => {
+            const spinner = document.getElementById('loadingSpinner');
+            const content = document.getElementById('asyncContent');
+            
+            spinner.style.display = 'block';
+            content.innerHTML = '<p>Loading...</p>';
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            spinner.style.display = 'none';
+            content.innerHTML = `
+                <h3>✅ Async Content Loaded!</h3>
+                <p>This content was loaded dynamically at ${new Date().toLocaleTimeString()}</p>
+                <button onclick="this.parentElement.remove()">Remove This Content</button>
+            `;
+        });
+        
+        document.getElementById('loadWithProgress').addEventListener('click', () => {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            let progress = 0;
+            
+            const interval = setInterval(() => {
+                progress += Math.random() * 10;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                }
+                
+                progressBar.value = progress;
+                progressText.textContent = Math.round(progress) + '%';
+            }, 200);
+        });
+        
+        // Context Menu
+        const contextMenuArea = document.getElementById('contextMenuArea');
+        const customContextMenu = document.getElementById('customContextMenu');
+        
+        contextMenuArea.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            customContextMenu.style.display = 'block';
+            customContextMenu.style.left = e.pageX + 'px';
+            customContextMenu.style.top = e.pageY + 'px';
+        });
+        
+        document.addEventListener('click', () => {
+            customContextMenu.style.display = 'none';
+        });
+        
+        document.querySelectorAll('.context-menu-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                alert(`Context action: ${e.target.dataset.action}`);
+            });
+        });
+        
+        // Virtual Scrolling
+        const virtualContainer = document.getElementById('virtualScrollContainer');
+        for (let i = 1; i <= 100; i++) {
+            const item = document.createElement('div');
+            item.className = 'virtual-scroll-item';
+            item.textContent = `Virtual Item ${i} - Lorem ipsum dolor sit amet`;
+            virtualContainer.appendChild(item);
+        }
+        
+        // Infinite Scrolling
+        const infiniteContainer = document.getElementById('infiniteScrollContainer');
+        let itemCount = 20;
+        
+        function loadInfiniteItems(count = 10) {
+            for (let i = 0; i < count; i++) {
+                const item = document.createElement('div');
+                item.className = 'infinite-scroll-item';
+                item.innerHTML = `
+                    <strong>Item ${itemCount++}</strong>
+                    <p>Dynamic content loaded ${new Date().toLocaleTimeString()}</p>
+                `;
+                infiniteContainer.appendChild(item);
+            }
+        }
+        
+        loadInfiniteItems();
+        
+        document.getElementById('loadMoreItems').addEventListener('click', () => {
+            loadInfiniteItems();
+        });
+        
+        infiniteContainer.addEventListener('scroll', () => {
+            if (infiniteContainer.scrollTop + infiniteContainer.clientHeight >= infiniteContainer.scrollHeight - 10) {
+                loadInfiniteItems(5);
+            }
+        });
+        
+        // Shadow DOM
+        const shadowHost = document.getElementById('shadowHost');
+        const shadowRoot = shadowHost.attachShadow({ mode: 'open' });
+        shadowRoot.innerHTML = `
+            <style>
+                .shadow-content { background: #e3f2fd; padding: 20px; border-radius: 8px; }
+                .shadow-button { background: #2196f3; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+            </style>
+            <div class="shadow-content">
+                <h4>🌓 Shadow DOM Content</h4>
+                <p>This content is inside Shadow DOM and may be harder to access via automation tools.</p>
+                <button class="shadow-button" onclick="alert('Shadow DOM button clicked!')">Shadow Button</button>
+                <input type="text" placeholder="Shadow DOM input" style="margin-top: 10px; padding: 8px;">
+            </div>
+        `;
+        
+        // Custom Web Component
+        class CustomElement extends HTMLElement {
+            connectedCallback() {
+                const shadow = this.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
+                    <style>
+                        .component { border: 2px solid #9c27b0; padding: 20px; border-radius: 8px; background: #f3e5f5; }
+                        .component-button { background: #9c27b0; color: white; border: none; padding: 8px 16px; border-radius: 4px; }
+                    </style>
+                    <div class="component">
+                        <h4>🧩 ${this.dataset.title || 'Custom Component'}</h4>
+                        <slot></slot>
+                        <button class="component-button" onclick="this.dispatchEvent(new CustomEvent('component-click', {bubbles: true}))">Component Action</button>
+                    </div>
+                `;
+            }
+        }
+        
+        customElements.define('custom-element', CustomElement);
+        
+        // Browser APIs
+        document.getElementById('requestNotification').addEventListener('click', async () => {
+            if ('Notification' in window) {
+                const permission = await Notification.requestPermission();
+                alert(`Notification permission: ${permission}`);
+            } else {
+                alert('Notifications not supported');
+            }
+        });
+        
+        document.getElementById('showNotification').addEventListener('click', () => {
+            if (Notification.permission === 'granted') {
+                new Notification('BrowserMCP Test', {
+                    body: 'This is a test notification from the enhanced test page!',
+                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="%2300bcd4"/></svg>'
+                });
+            } else {
+                alert('Please allow notifications first');
+            }
+        });
+        
+        document.getElementById('enterFullscreen').addEventListener('click', () => {
+            document.documentElement.requestFullscreen().catch(err => {
+                alert('Fullscreen not supported or denied');
+            });
+        });
+        
+        document.getElementById('exitFullscreen').addEventListener('click', () => {
+            document.exitFullscreen().catch(err => {
+                alert('Not in fullscreen mode');
+            });
+        });
+        
+        document.getElementById('getLocation').addEventListener('click', () => {
+            const resultDiv = document.getElementById('locationResult');
+            
+            if ('geolocation' in navigator) {
+                resultDiv.innerHTML = '📍 Getting location...';
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        resultDiv.innerHTML = `
+                            <strong>Location Found:</strong><br>
+                            Latitude: ${position.coords.latitude}<br>
+                            Longitude: ${position.coords.longitude}<br>
+                            Accuracy: ${position.coords.accuracy}m
+                        `;
+                    },
+                    error => {
+                        resultDiv.innerHTML = `❌ Error: ${error.message}`;
+                    }
+                );
+            } else {
+                resultDiv.innerHTML = '❌ Geolocation not supported';
+            }
+        });
+        
+        // Print functionality
+        document.getElementById('printPage').addEventListener('click', () => {
+            window.print();
+        });
+        
+        // Media Controls
+        const video = document.getElementById('testVideo');
+        const audio = document.getElementById('testAudio');
+        
+        document.getElementById('playVideo').addEventListener('click', () => video.play());
+        document.getElementById('pauseVideo').addEventListener('click', () => video.pause());
+        document.getElementById('muteVideo').addEventListener('click', () => video.muted = !video.muted);
+        
+        document.getElementById('volumeControl').addEventListener('input', (e) => {
+            video.volume = e.target.value;
+            audio.volume = e.target.value;
+        });
+        
+        document.getElementById('playAudio').addEventListener('click', () => audio.play());
+        document.getElementById('pauseAudio').addEventListener('click', () => audio.pause());
+        document.getElementById('stopAudio').addEventListener('click', () => {
+            audio.pause();
+            audio.currentTime = 0;
+        });
+        
+        // Console logging for testing
+        console.log('🚀 Enhanced test page loaded successfully!');
+        console.log('📊 Available test elements:', {
+            iframes: document.querySelectorAll('iframe').length,
+            canvas: document.querySelectorAll('canvas').length,
+            video: document.querySelectorAll('video').length,
+            audio: document.querySelectorAll('audio').length,
+            customElements: document.querySelectorAll('custom-element').length,
+            shadowHosts: document.querySelectorAll('#shadowHost').length,
+            forms: document.querySelectorAll('form').length,
+            buttons: document.querySelectorAll('button').length,
+            inputs: document.querySelectorAll('input').length
+        });
+        
+        // Performance monitoring
+        window.addEventListener('load', () => {
+            console.log('⏱️ Page load performance:', {
+                loadTime: performance.now(),
+                navigation: performance.getEntriesByType('navigation')[0]
+            });
+        });
+    </script>
+</body>
+</html>
