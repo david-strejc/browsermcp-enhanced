@@ -114,6 +114,12 @@ const MCPSafeAPI = {
     params: Object.fromEntries(new URLSearchParams(window.location.search))
   }),
   
+  // Element reference operations
+  getRef: (element) => {
+    if (!element || !element.nodeType) return null;
+    return window.__elementTracker ? window.__elementTracker.getElementId(element) : null;
+  },
+  
   // Console operations (for debugging)
   log: (...args) => {
     console.log('[MCP Exec]', ...args);

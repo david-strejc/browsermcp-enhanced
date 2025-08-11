@@ -14,6 +14,7 @@ import * as tabs from "./tools/tabs";
 import { debuggerTools } from "./tools/debugger";
 import { expandRegion, queryElements } from "./tools/scaffold";
 import { executeJS, commonOperations } from "./tools/code-execution";
+import { fileUploadTools } from "./tools/file-upload";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -62,6 +63,7 @@ const snapshotTools: Tool[] = [
   ...debuggerTools,
   ...scaffoldTools,
   ...codeExecutionTools,
+  ...fileUploadTools,
 ];
 
 const resources: Resource[] = [];
