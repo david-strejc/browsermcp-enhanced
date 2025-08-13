@@ -37,38 +37,28 @@ export const expandRegion: Tool = {
     const validatedParams = ExpandRegionTool.shape.arguments.parse(params || {});
     const response = await context.sendSocketMessage("dom.expand", validatedParams);
     
-    // Validate response structure
+    // Ensure we always return a properly formatted response
+    let textContent: string;
+    
     if (response && typeof response === 'object' && 'expansion' in response) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: response.expansion,
-          },
-        ],
-      };
+      textContent = String(response.expansion);
     } else if (typeof response === 'string') {
-      // Direct string response (fallback)
-      return {
-        content: [
-          {
-            type: "text",
-            text: response,
-          },
-        ],
-      };
+      textContent = response;
+    } else if (response === null || response === undefined) {
+      textContent = "No content returned from expansion";
     } else {
-      // Unexpected response format - fail with diagnostic info
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Unexpected response format from dom.expand. Expected {expansion: string} but got: ${JSON.stringify(response, null, 2)}`,
-          },
-        ],
-        isError: true,
-      };
+      textContent = JSON.stringify(response, null, 2);
     }
+    
+    // Always return a valid MCP response structure
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: textContent || ""
+        }
+      ]
+    };
   },
 };
 
@@ -83,37 +73,27 @@ export const queryElements: Tool = {
     const validatedParams = QueryElementsTool.shape.arguments.parse(params || {});
     const response = await context.sendSocketMessage("dom.query", validatedParams);
     
-    // Validate response structure
+    // Ensure we always return a properly formatted response
+    let textContent: string;
+    
     if (response && typeof response === 'object' && 'results' in response) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: response.results,
-          },
-        ],
-      };
+      textContent = String(response.results);
     } else if (typeof response === 'string') {
-      // Direct string response (fallback)
-      return {
-        content: [
-          {
-            type: "text",
-            text: response,
-          },
-        ],
-      };
+      textContent = response;
+    } else if (response === null || response === undefined) {
+      textContent = "No elements found matching the query";
     } else {
-      // Unexpected response format - fail with diagnostic info
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: Unexpected response format from dom.query. Expected {results: string} but got: ${JSON.stringify(response, null, 2)}`,
-          },
-        ],
-        isError: true,
-      };
+      textContent = JSON.stringify(response, null, 2);
     }
+    
+    // Always return a valid MCP response structure
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: textContent || ""
+        }
+      ]
+    };
   },
 };

@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BrowserMCP Test Elements Page</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, textarea, select, button {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input[type="range"] {
+            width: 200px;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background-color: #007bff;
+            color: white;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        .overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+        }
+        .modal-content {
+            max-width: 400px;
+        }
+        .color-box {
+            width: 50px;
+            height: 30px;
+            border: 1px solid #ccc;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        .progress-container {
+            width: 300px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+        .progress-bar {
+            width: 60%;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+        }
+        .tab-container {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .tab-header {
+            display: flex;
+            background-color: #f1f1f1;
+            border-radius: 4px 4px 0 0;
+        }
+        .tab-button {
+            padding: 10px 20px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-button.active {
+            background-color: white;
+            border-bottom: 2px solid #007bff;
+        }
+        .tab-content {
+            padding: 20px;
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .accordion {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .accordion-item {
+            border-bottom: 1px solid #ddd;
+        }
+        .accordion-header {
+            padding: 15px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .accordion-header:hover {
+            background-color: #e9ecef;
+        }
+        .accordion-content {
+            padding: 15px;
+            display: none;
+        }
+        .dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: white;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 1;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .dropdown-content a {
+            color: black;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+        }
+        .dropdown-content a:hover {
+            background-color: #f1f1f1;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 120px;
+            background-color: black;
+            color: white;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px 0;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -60px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        .draggable {
+            width: 100px;
+            height: 100px;
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            line-height: 100px;
+            cursor: move;
+            border-radius: 4px;
+            margin: 10px;
+        }
+        .dropzone {
+            width: 200px;
+            height: 100px;
+            border: 2px dashed #ccc;
+            text-align: center;
+            line-height: 100px;
+            margin: 10px;
+            border-radius: 4px;
+        }
+        .dropzone.dragover {
+            border-color: #007bff;
+            background-color: #e3f2fd;
+        }
+    </style>
+</head>
+<body>
+    <h1>BrowserMCP Test Elements Page</h1>
+    <p>This page contains all standard web elements for testing browser automation tools.</p>
+
+    <!-- Basic Form Elements -->
+    <div class="section">
+        <h2>Basic Form Elements</h2>
+        <form id="basicForm">
+            <div class="form-group">
+                <label for="textInput">Text Input:</label>
+                <input type="text" id="textInput" name="textInput" placeholder="Enter text here">
+            </div>
+
+            <div class="form-group">
+                <label for="emailInput">Email Input:</label>
+                <input type="email" id="emailInput" name="emailInput" placeholder="user@example.com">
+            </div>
+
+            <div class="form-group">
+                <label for="passwordInput">Password Input:</label>
+                <input type="password" id="passwordInput" name="passwordInput" placeholder="Password">
+            </div>
+
+            <div class="form-group">
+                <label for="numberInput">Number Input:</label>
+                <input type="number" id="numberInput" name="numberInput" min="0" max="100" value="50">
+            </div>
+
+            <div class="form-group">
+                <label for="rangeInput">Range Input:</label>
+                <input type="range" id="rangeInput" name="rangeInput" min="0" max="100" value="30">
+                <span id="rangeValue">30</span>
+            </div>
+
+            <div class="form-group">
+                <label for="colorInput">Color Input:</label>
+                <input type="color" id="colorInput" name="colorInput" value="#ff0000">
+                <div class="color-box" id="colorDisplay" style="background-color: #ff0000;"></div>
+            </div>
+
+            <div class="form-group">
+                <label for="dateInput">Date Input:</label>
+                <input type="date" id="dateInput" name="dateInput">
+            </div>
+
+            <div class="form-group">
+                <label for="timeInput">Time Input:</label>
+                <input type="time" id="timeInput" name="timeInput">
+            </div>
+
+            <div class="form-group">
+                <label for="datetimeInput">DateTime Local Input:</label>
+                <input type="datetime-local" id="datetimeInput" name="datetimeInput">
+            </div>
+
+            <div class="form-group">
+                <label for="fileInput">File Input:</label>
+                <input type="file" id="fileInput" name="fileInput" multiple>
+            </div>
+
+            <div class="form-group">
+                <label for="searchInput">Search Input:</label>
+                <input type="search" id="searchInput" name="searchInput" placeholder="Search...">
+            </div>
+
+            <div class="form-group">
+                <label for="urlInput">URL Input:</label>
+                <input type="url" id="urlInput" name="urlInput" placeholder="https://example.com">
+            </div>
+
+            <div class="form-group">
+                <label for="telInput">Tel Input:</label>
+                <input type="tel" id="telInput" name="telInput" placeholder="+1-555-123-4567">
+            </div>
+        </form>
+    </div>
+
+    <!-- Textarea -->
+    <div class="section">
+        <h2>Textarea</h2>
+        <div class="form-group">
+            <label for="textareaInput">Large Text Input:</label>
+            <textarea id="textareaInput" name="textareaInput" rows="4" cols="50" placeholder="Enter multiple lines of text here..."></textarea>
+        </div>
+    </div>
+
+    <!-- Select Elements -->
+    <div class="section">
+        <h2>Select Elements</h2>
+        <div class="form-group">
+            <label for="singleSelect">Single Select:</label>
+            <select id="singleSelect" name="singleSelect">
+                <option value="">Choose an option</option>
+                <option value="option1">Option 1</option>
+                <option value="option2">Option 2</option>
+                <option value="option3">Option 3</option>
+                <option value="option4">Option 4</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="multiSelect">Multiple Select:</label>
+            <select id="multiSelect" name="multiSelect" multiple size="5">
+                <option value="apple">Apple</option>
+                <option value="banana">Banana</option>
+                <option value="cherry">Cherry</option>
+                <option value="date">Date</option>
+                <option value="elderberry">Elderberry</option>
+                <option value="fig">Fig</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="optgroupSelect">Optgroup Select:</label>
+            <select id="optgroupSelect" name="optgroupSelect">
+                <optgroup label="Fruits">
+                    <option value="apple">Apple</option>
+                    <option value="banana">Banana</option>
+                    <option value="orange">Orange</option>
+                </optgroup>
+                <optgroup label="Vegetables">
+                    <option value="carrot">Carrot</option>
+                    <option value="broccoli">Broccoli</option>
+                    <option value="spinach">Spinach</option>
+                </optgroup>
+            </select>
+        </div>
+    </div>
+
+    <!-- Checkboxes and Radio Buttons -->
+    <div class="section">
+        <h2>Checkboxes and Radio Buttons</h2>
+        
+        <div class="form-group">
+            <label>Checkboxes:</label>
+            <div>
+                <input type="checkbox" id="checkbox1" name="hobbies" value="reading">
+                <label for="checkbox1">Reading</label>
+            </div>
+            <div>
+                <input type="checkbox" id="checkbox2" name="hobbies" value="gaming">
+                <label for="checkbox2">Gaming</label>
+            </div>
+            <div>
+                <input type="checkbox" id="checkbox3" name="hobbies" value="cooking">
+                <label for="checkbox3">Cooking</label>
+            </div>
+            <div>
+                <input type="checkbox" id="checkbox4" name="hobbies" value="sports" checked>
+                <label for="checkbox4">Sports (pre-checked)</label>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Radio Buttons:</label>
+            <div>
+                <input type="radio" id="radio1" name="size" value="small">
+                <label for="radio1">Small</label>
+            </div>
+            <div>
+                <input type="radio" id="radio2" name="size" value="medium" checked>
+                <label for="radio2">Medium (pre-selected)</label>
+            </div>
+            <div>
+                <input type="radio" id="radio3" name="size" value="large">
+                <label for="radio3">Large</label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Buttons -->
+    <div class="section">
+        <h2>Buttons</h2>
+        <div class="button-group">
+            <button type="button" id="primaryButton">Primary Button</button>
+            <button type="submit" id="submitButton">Submit Button</button>
+            <button type="reset" id="resetButton">Reset Button</button>
+            <button type="button" id="disabledButton" disabled>Disabled Button</button>
+            <input type="button" id="inputButton" value="Input Button">
+            <input type="submit" id="inputSubmit" value="Input Submit">
+        </div>
+    </div>
+
+    <!-- Links -->
+    <div class="section">
+        <h2>Links</h2>
+        <p>
+            <a href="#section1" id="internalLink">Internal Link</a> | 
+            <a href="https://example.com" id="externalLink" target="_blank">External Link</a> | 
+            <a href="mailto:test@example.com" id="emailLink">Email Link</a> | 
+            <a href="tel:+1234567890" id="phoneLink">Phone Link</a>
+        </p>
+    </div>
+
+    <!-- Modal/Popup -->
+    <div class="section">
+        <h2>Modal/Popup</h2>
+        <button type="button" id="openModal">Open Modal</button>
+        <div class="overlay" id="overlay"></div>
+        <div class="popup" id="modal">
+            <div class="modal-content">
+                <h3>Modal Title</h3>
+                <p>This is a modal popup window. You can interact with elements inside it.</p>
+                <input type="text" placeholder="Input inside modal" id="modalInput">
+                <br><br>
+                <button type="button" id="closeModal">Close Modal</button>
+                <button type="button" id="modalAction">Modal Action</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="section">
+        <h2>Progress Elements</h2>
+        <div class="form-group">
+            <label>Progress Bar:</label>
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+            <button type="button" id="updateProgress">Update Progress</button>
+        </div>
+        
+        <div class="form-group">
+            <label for="progressElement">HTML5 Progress:</label>
+            <progress id="progressElement" value="70" max="100">70%</progress>
+        </div>
+
+        <div class="form-group">
+            <label for="meterElement">HTML5 Meter:</label>
+            <meter id="meterElement" value="6" min="0" max="10">6 out of 10</meter>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="section">
+        <h2>Tabs</h2>
+        <div class="tab-container">
+            <div class="tab-header">
+                <button class="tab-button active" data-tab="tab1">Tab 1</button>
+                <button class="tab-button" data-tab="tab2">Tab 2</button>
+                <button class="tab-button" data-tab="tab3">Tab 3</button>
+            </div>
+            <div class="tab-content active" id="tab1">
+                <h4>Tab 1 Content</h4>
+                <p>This is the content of tab 1.</p>
+                <input type="text" placeholder="Input in tab 1">
+            </div>
+            <div class="tab-content" id="tab2">
+                <h4>Tab 2 Content</h4>
+                <p>This is the content of tab 2.</p>
+                <select>
+                    <option>Select in tab 2</option>
+                    <option>Option A</option>
+                    <option>Option B</option>
+                </select>
+            </div>
+            <div class="tab-content" id="tab3">
+                <h4>Tab 3 Content</h4>
+                <p>This is the content of tab 3.</p>
+                <button type="button">Button in tab 3</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Accordion -->
+    <div class="section">
+        <h2>Accordion</h2>
+        <div class="accordion">
+            <div class="accordion-item">
+                <div class="accordion-header" data-target="accordion1">Accordion Item 1</div>
+                <div class="accordion-content" id="accordion1">
+                    <p>Content for accordion item 1. This can contain any HTML elements.</p>
+                    <input type="text" placeholder="Input in accordion">
+                </div>
+            </div>
+            <div class="accordion-item">
+                <div class="accordion-header" data-target="accordion2">Accordion Item 2</div>
+                <div class="accordion-content" id="accordion2">
+                    <p>Content for accordion item 2.</p>
+                    <button type="button">Button in accordion</button>
+                </div>
+            </div>
+            <div class="accordion-item">
+                <div class="accordion-header" data-target="accordion3">Accordion Item 3</div>
+                <div class="accordion-content" id="accordion3">
+                    <p>Content for accordion item 3.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dropdown Menu -->
+    <div class="section">
+        <h2>Custom Dropdown</h2>
+        <div class="dropdown">
+            <button type="button" id="dropdownButton">Dropdown Menu ▼</button>
+            <div class="dropdown-content" id="dropdownContent">
+                <a href="#" data-value="action1">Action 1</a>
+                <a href="#" data-value="action2">Action 2</a>
+                <a href="#" data-value="action3">Action 3</a>
+                <a href="#" data-value="divider">---</a>
+                <a href="#" data-value="action4">Action 4</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip -->
+    <div class="section">
+        <h2>Tooltip</h2>
+        <div class="tooltip">
+            <button type="button">Hover for tooltip</button>
+            <span class="tooltiptext">This is a tooltip!</span>
+        </div>
+    </div>
+
+    <!-- Drag and Drop -->
+    <div class="section">
+        <h2>Drag and Drop</h2>
+        <div class="draggable" draggable="true" id="draggable1">Drag Me</div>
+        <div class="dropzone" id="dropzone">Drop Here</div>
+    </div>
+
+    <!-- Tables -->
+    <div class="section">
+        <h2>Table</h2>
+        <table border="1" style="border-collapse: collapse; width: 100%;">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Age</th>
+                    <th>City</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>John Doe</td>
+                    <td>30</td>
+                    <td>New York</td>
+                    <td><button type="button">Edit</button></td>
+                </tr>
+                <tr>
+                    <td>Jane Smith</td>
+                    <td>25</td>
+                    <td>Los Angeles</td>
+                    <td><button type="button">Edit</button></td>
+                </tr>
+                <tr>
+                    <td>Bob Johnson</td>
+                    <td>35</td>
+                    <td>Chicago</td>
+                    <td><button type="button">Edit</button></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Lists -->
+    <div class="section">
+        <h2>Lists</h2>
+        <div style="display: flex; gap: 40px;">
+            <div>
+                <h4>Unordered List</h4>
+                <ul>
+                    <li>Item 1</li>
+                    <li>Item 2
+                        <ul>
+                            <li>Sub-item A</li>
+                            <li>Sub-item B</li>
+                        </ul>
+                    </li>
+                    <li>Item 3</li>
+                </ul>
+            </div>
+            <div>
+                <h4>Ordered List</h4>
+                <ol>
+                    <li>First item</li>
+                    <li>Second item</li>
+                    <li>Third item</li>
+                </ol>
+            </div>
+            <div>
+                <h4>Definition List</h4>
+                <dl>
+                    <dt>HTML</dt>
+                    <dd>HyperText Markup Language</dd>
+                    <dt>CSS</dt>
+                    <dd>Cascading Style Sheets</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+
+    <!-- Media Elements -->
+    <div class="section">
+        <h2>Media Elements</h2>
+        <div class="form-group">
+            <h4>Image</h4>
+            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'%3E%3Crect width='200' height='100' fill='%234CAF50'/%3E%3Ctext x='100' y='55' text-anchor='middle' fill='white' font-family='Arial' font-size='16'%3ETest Image%3C/text%3E%3C/svg%3E" alt="Test Image" id="testImage">
+        </div>
+    </div>
+
+    <!-- Interactive Elements -->
+    <div class="section">
+        <h2>Interactive Elements</h2>
+        <details>
+            <summary>Expandable Details</summary>
+            <p>This content is hidden by default and shown when the details element is expanded.</p>
+            <input type="text" placeholder="Hidden input">
+        </details>
+        <br>
+        <fieldset>
+            <legend>Fieldset Legend</legend>
+            <input type="text" placeholder="Input inside fieldset">
+            <button type="button">Button inside fieldset</button>
+        </fieldset>
+    </div>
+
+    <!-- Status Display -->
+    <div class="section">
+        <h2>Status Display</h2>
+        <div id="statusDisplay" style="padding: 10px; background-color: #e3f2fd; border-radius: 4px;">
+            Status: Ready for testing
+        </div>
+        <button type="button" id="updateStatus">Update Status</button>
+    </div>
+
+    <script>
+        // JavaScript to make elements interactive
+        
+        // Range input
+        document.getElementById('rangeInput').addEventListener('input', function() {
+            document.getElementById('rangeValue').textContent = this.value;
+        });
+
+        // Color input
+        document.getElementById('colorInput').addEventListener('change', function() {
+            document.getElementById('colorDisplay').style.backgroundColor = this.value;
+        });
+
+        // Modal
+        document.getElementById('openModal').addEventListener('click', function() {
+            document.getElementById('overlay').style.display = 'block';
+            document.getElementById('modal').style.display = 'block';
+        });
+
+        document.getElementById('closeModal').addEventListener('click', function() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('modal').style.display = 'none';
+        });
+
+        document.getElementById('overlay').addEventListener('click', function() {
+            document.getElementById('overlay').style.display = 'none';
+            document.getElementById('modal').style.display = 'none';
+        });
+
+        // Progress bar
+        let progress = 60;
+        document.getElementById('updateProgress').addEventListener('click', function() {
+            progress = (progress + 10) % 101;
+            document.getElementById('progressBar').style.width = progress + '%';
+            document.getElementById('progressElement').value = progress;
+        });
+
+        // Tabs
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.addEventListener('click', function() {
+                // Remove active from all tabs and contents
+                document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Add active to clicked tab and corresponding content
+                this.classList.add('active');
+                document.getElementById(this.dataset.tab).classList.add('active');
+            });
+        });
+
+        // Accordion
+        document.querySelectorAll('.accordion-header').forEach(header => {
+            header.addEventListener('click', function() {
+                const content = document.getElementById(this.dataset.target);
+                const isVisible = content.style.display === 'block';
+                
+                // Hide all accordion contents
+                document.querySelectorAll('.accordion-content').forEach(acc => acc.style.display = 'none');
+                
+                // Show clicked one if it wasn't visible
+                if (!isVisible) {
+                    content.style.display = 'block';
+                }
+            });
+        });
+
+        // Dropdown
+        document.getElementById('dropdownButton').addEventListener('click', function() {
+            const content = document.getElementById('dropdownContent');
+            content.style.display = content.style.display === 'block' ? 'none' : 'block';
+        });
+
+        document.getElementById('dropdownContent').addEventListener('click', function(e) {
+            if (e.target.tagName === 'A') {
+                e.preventDefault();
+                document.getElementById('dropdownButton').textContent = e.target.textContent + ' ▼';
+                this.style.display = 'none';
+            }
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.dropdown')) {
+                document.getElementById('dropdownContent').style.display = 'none';
+            }
+        });
+
+        // Drag and Drop
+        const draggable = document.getElementById('draggable1');
+        const dropzone = document.getElementById('dropzone');
+
+        draggable.addEventListener('dragstart', function(e) {
+            e.dataTransfer.setData('text/plain', 'draggable1');
+        });
+
+        dropzone.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.classList.add('dragover');
+        });
+
+        dropzone.addEventListener('dragleave', function() {
+            this.classList.remove('dragover');
+        });
+
+        dropzone.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('dragover');
+            this.textContent = 'Dropped!';
+            this.style.backgroundColor = '#4CAF50';
+            this.style.color = 'white';
+        });
+
+        // Status update
+        let statusCount = 0;
+        document.getElementById('updateStatus').addEventListener('click', function() {
+            statusCount++;
+            document.getElementById('statusDisplay').textContent = `Status: Updated ${statusCount} times`;
+        });
+
+        // Form interactions
+        document.getElementById('primaryButton').addEventListener('click', function() {
+            alert('Primary button clicked!');
+        });
+
+        document.getElementById('modalAction').addEventListener('click', function() {
+            alert('Modal action performed!');
+        });
+
+        // Console logging for testing
+        document.addEventListener('change', function(e) {
+            console.log('Element changed:', e.target.id, 'Value:', e.target.value);
+        });
+
+        document.addEventListener('click', function(e) {
+            console.log('Element clicked:', e.target.tagName, 'ID:', e.target.id, 'Class:', e.target.className);
+        });
+    </script>
+</body>
+</html>

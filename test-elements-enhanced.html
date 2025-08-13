@@ -377,6 +377,24 @@
             <input type="file" id="imageUpload" accept="image/*">
             <div id="imagePreview" style="margin-top: 10px;"></div>
         </div>
+
+        <div style="margin-top: 20px;">
+            <label for="documentUpload">Document Upload (PDF/DOC only):</label>
+            <input type="file" id="documentUpload" accept=".pdf,.doc,.docx" multiple>
+            <div id="documentList" style="margin-top: 10px; color: #666;"></div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <label for="videoUpload">Video Upload with Size Limit (max 50MB):</label>
+            <input type="file" id="videoUpload" accept="video/*" data-max-size="52428800">
+            <div id="videoInfo" style="margin-top: 10px; font-size: 0.9em;"></div>
+        </div>
+
+        <div style="margin-top: 20px;">
+            <label for="csvUpload">CSV Data Upload:</label>
+            <input type="file" id="csvUpload" accept=".csv,text/csv" required>
+            <div id="csvPreview" style="margin-top: 10px; max-height: 200px; overflow: auto;"></div>
+        </div>
     </div>
 
     <!-- Contenteditable -->
@@ -690,6 +708,73 @@
                 };
                 reader.readAsDataURL(file);
             }
+        });
+
+        // Document Upload Handler
+        document.getElementById('documentUpload').addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            const docList = document.getElementById('documentList');
+            
+            if (files.length === 0) {
+                docList.innerHTML = '';
+                return;
+            }
+            
+            docList.innerHTML = '<strong>Documents:</strong><br>';
+            files.forEach(file => {
+                const size = (file.size / 1024 / 1024).toFixed(2);
+                docList.innerHTML += `📄 ${file.name} (${size} MB)<br>`;
+            });
+        });
+
+        // Video Upload Handler with Size Validation
+        document.getElementById('videoUpload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const info = document.getElementById('videoInfo');
+            const maxSize = parseInt(e.target.dataset.maxSize) || 52428800; // 50MB default
+            
+            if (!file) {
+                info.innerHTML = '';
+                return;
+            }
+            
+            const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+            const maxSizeMB = (maxSize / 1024 / 1024).toFixed(0);
+            
+            if (file.size > maxSize) {
+                info.innerHTML = `❌ File too large: ${sizeMB}MB (max ${maxSizeMB}MB)`;
+                info.style.color = 'red';
+                e.target.value = ''; // Clear the input
+            } else {
+                info.innerHTML = `✅ ${file.name} (${sizeMB}MB) - Ready to upload`;
+                info.style.color = 'green';
+            }
+        });
+
+        // CSV Upload Handler with Preview
+        document.getElementById('csvUpload').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const preview = document.getElementById('csvPreview');
+            
+            if (!file) {
+                preview.innerHTML = '';
+                return;
+            }
+            
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                preview.innerHTML = '❌ Please select a CSV file';
+                preview.style.color = 'red';
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const csvData = e.target.result;
+                const lines = csvData.split('\\n').slice(0, 5); // Show first 5 lines
+                preview.innerHTML = `<strong>CSV Preview (first 5 lines):</strong><br><pre>${lines.join('\\n')}</pre>`;
+                preview.style.color = 'inherit';
+            };
+            reader.readAsText(file);
         });
         
         // Rich Text Editor
