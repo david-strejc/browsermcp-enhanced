@@ -15,6 +15,7 @@ import { debuggerTools } from "./tools/debugger";
 import { expandRegion, queryElements } from "./tools/scaffold";
 import { executeJS, commonOperations } from "./tools/code-execution";
 import { fileUploadTools } from "./tools/file-upload";
+import { browserMultitool } from "./tools/multitool";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -49,6 +50,7 @@ const codeExecutionTools: Tool[] = [
 ];
 
 const snapshotTools: Tool[] = [
+  browserMultitool,  // Add multitool first for preference
   common.navigate(true),
   common.goBack(true),
   common.goForward(true),
