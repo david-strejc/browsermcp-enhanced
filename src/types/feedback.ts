@@ -96,7 +96,8 @@ export interface ErrorEvent {
   colno?: number;
 }
 
-// Recovery hint templates
+// Recovery hint templates - Now integrated with HintEngine
+// These are fallbacks when HintEngine is not available
 export const RecoveryHints = {
   [FeedbackCode.NOT_FOUND]: "Element not found. Use browser_snapshot to refresh references or browser_execute_js to search by different criteria.",
   [FeedbackCode.DISABLED]: "Element is disabled. Use browser_execute_js to check and enable it, or wait for page conditions to change.",
@@ -109,6 +110,40 @@ export const RecoveryHints = {
   [FeedbackCode.NAVIGATION]: "Unexpected navigation occurred. Use browser_snapshot to get new page context.",
   [FeedbackCode.UNKNOWN]: "Unknown error. Use browser_get_console_logs and browser_execute_js to investigate."
 };
+
+// Enhanced feedback context for hint generation
+export interface FeedbackContext {
+  hostname?: string;
+  elementRef?: string;
+  elementMeta?: {
+    tag?: string;
+    type?: string;
+    attributes?: string[];
+    shadowRoot?: boolean;
+    frameId?: string;
+    rect?: DOMRect;
+  };
+  pageMeta?: {
+    framework?: 'React' | 'Vue' | 'Angular' | 'vanilla';
+    isIframe?: boolean;
+    hasModal?: string[];
+    hasInfiniteScroll?: boolean;
+    hasVideo?: boolean;
+  };
+  viewport?: {
+    width: number;
+    height: number;
+  };
+  networkHistory?: NetworkActivity[];
+  cookies?: Array<{ name: string; value: string }>;
+  mutations?: {
+    total: number;
+    types: Record<string, number>;
+  };
+  actionStart?: number;
+  pageTitle?: string;
+  pageState?: any;
+}
 
 // Feedback severity levels for prioritization
 export enum FeedbackSeverity {

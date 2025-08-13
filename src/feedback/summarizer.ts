@@ -11,8 +11,11 @@ import {
   FeedbackCodeLabels,
   NetworkActivity,
   getSeverity,
-  FeedbackSeverity
+  FeedbackSeverity,
+  FeedbackContext
 } from '../types/feedback';
+import { hintEngine } from './hint-engine';
+import { hintFormatter } from './hint-expansion';
 
 export class FeedbackSummarizer {
   private readonly MAX_ERRORS = 3;
@@ -206,25 +209,108 @@ export class FeedbackSummarizer {
   }
 
   /**
-   * Generate recovery hint based on error code
+   * Generate recovery hint based on error code - Now with surgical precision
    */
   private generateHint(
     code: FeedbackCode,
     bundle: RawFeedbackBundle,
     error?: string
   ): string {
-    // Use predefined hints
-    let hint = RecoveryHints[code] || RecoveryHints[FeedbackCode.UNKNOWN];
+    // Build context for hint engine
+    const context: FeedbackContext = {
+      hostname: bundle.pageState?.after?.url ? new URL(bundle.pageState.after.url).hostname : undefined,
+      elementRef: bundle.ref,
+      elementMeta: bundle.elementState ? {
+        tag: bundle.elementState.tag,
+        type: bundle.elementState.type,
+        attributes: bundle.elementState.attributes,
+        shadowRoot: bundle.elementState.shadowRoot,
+        frameId: bundle.elementState.frameId,
+        rect: bundle.elementState.rect
+      } : undefined,
+      pageMeta: {
+        framework: this.detectFramework(bundle),
+        isIframe: bundle.elementState?.frameId !== undefined,
+        hasModal: this.detectModals(bundle),
+        hasInfiniteScroll: this.detectInfiniteScroll(bundle),
+        hasVideo: this.detectVideo(bundle)
+      },
+      viewport: bundle.viewport,
+      networkHistory: bundle.network,
+      mutations: bundle.mutations as any,
+      actionStart: bundle.timestamp,
+      pageTitle: bundle.pageState?.after?.title,
+      pageState: bundle.pageState
+    };
 
-    // Enhance with specific context
-    if (code === FeedbackCode.NOT_FOUND && bundle.ref) {
-      hint = `Element ${bundle.ref} not found. ${hint}`;
-    } else if (code === FeedbackCode.JS_ERROR && bundle.errors?.[0]) {
-      const errorMsg = bundle.errors[0].message?.substring(0, 50);
-      hint = `JS Error: ${errorMsg}. ${hint}`;
+    // Try hint engine first for surgical precision
+    try {
+      // Determine token budget based on severity
+      const severity = getSeverity(code);
+      const tokenBudget = severity >= FeedbackSeverity.ERROR ? 'normal' : 'minimal';
+      
+      const engineHint = hintEngine.generateHint(code, context, tokenBudget);
+      
+      // If we get a hint code, expand it to readable format
+      if (engineHint && engineHint.length <= 5) { // Likely a hint code
+        return hintFormatter.format(engineHint, 'normal', context);
+      }
+      
+      return engineHint;
+    } catch (e) {
+      // Fallback to basic hints
+      console.warn('Hint engine failed, using fallback:', e);
+      return RecoveryHints[code] || RecoveryHints[FeedbackCode.UNKNOWN];
     }
+  }
 
-    return hint;
+  /**
+   * Detect framework from bundle
+   */
+  private detectFramework(bundle: RawFeedbackBundle): 'React' | 'Vue' | 'Angular' | 'vanilla' {
+    const errors = bundle.errors || [];
+    const errorText = errors.map(e => e.message).join(' ');
+    
+    if (errorText.includes('React') || errorText.includes('jsx')) return 'React';
+    if (errorText.includes('Vue') || errorText.includes('v-')) return 'Vue';
+    if (errorText.includes('Angular') || errorText.includes('ng-')) return 'Angular';
+    
+    return 'vanilla';
+  }
+
+  /**
+   * Detect modals on page
+   */
+  private detectModals(bundle: RawFeedbackBundle): string[] {
+    const modals: string[] = [];
+    if (bundle.mutations && typeof bundle.mutations === 'object') {
+      const changes = (bundle.mutations as any).significantChanges || [];
+      changes.forEach((c: any) => {
+        if (c.target?.includes('modal') || c.target?.includes('popup')) {
+          modals.push(c.target);
+        }
+      });
+    }
+    return modals;
+  }
+
+  /**
+   * Detect infinite scroll
+   */
+  private detectInfiniteScroll(bundle: RawFeedbackBundle): boolean {
+    const pageState = bundle.pageState;
+    if (!pageState?.before || !pageState?.after) return false;
+    
+    // Check if body height increased significantly
+    return pageState.after.bodyHeight > pageState.before.bodyHeight * 1.5;
+  }
+
+  /**
+   * Detect video elements
+   */
+  private detectVideo(bundle: RawFeedbackBundle): boolean {
+    return bundle.elementState?.tag === 'video' || 
+           bundle.errors?.some(e => e.message?.includes('video')) || false;
   }
 
   /**
