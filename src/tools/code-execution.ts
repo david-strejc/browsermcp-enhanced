@@ -6,7 +6,7 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available)"),
+  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). Primary tool for debugging element issues, page state, and complex interactions when standard tools fail."),
   arguments: z.object({
     code: z.string().describe(`JavaScript code to execute. 
       
@@ -117,7 +117,7 @@ export const executeJS: Tool = {
 // Helper tool for common operations
 const CommonOperationsTool = z.object({
   name: z.literal("browser_common_operation"),
-  description: z.literal("Perform common browser operations using pre-built scripts"),
+  description: z.literal("Perform common browser operations using pre-built scripts. Includes debugging utilities like popup detection and element validation."),
   arguments: z.object({
     operation: z.enum([
       "hide_popups",

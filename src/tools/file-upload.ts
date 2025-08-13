@@ -7,7 +7,7 @@ import { ErrorRecovery } from "../utils/error-recovery";
 // File upload simulation tool schema
 const FileUploadTool = z.object({
   name: z.literal("browser_simulate_file_upload"),
-  description: z.literal("Simulate file upload by creating mock files and triggering file input elements"),
+  description: z.literal("Simulate file upload by creating mock files and triggering file input elements. Use browser_detect_file_inputs first to analyze constraints."),
   arguments: z.object({
     ref: z.string().describe("The ref ID of the file input element"),
     element: z.string().describe("Human-readable element description"),
@@ -41,7 +41,7 @@ const DragDropUploadTool = z.object({
 // File input detection tool schema
 const FileInputDetectionTool = z.object({
   name: z.literal("browser_detect_file_inputs"),
-  description: z.literal("Detect and analyze all file input elements on the page"),
+  description: z.literal("Detect and analyze all file input elements on the page. Essential before file uploads to understand acceptance criteria and constraints."),
   arguments: z.object({
     includeHidden: z.boolean().optional().default(false).describe("Whether to include hidden file inputs"),
     analyzeConstraints: z.boolean().optional().default(true).describe("Whether to analyze file type and size constraints")

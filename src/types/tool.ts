@@ -40,7 +40,7 @@ export const WaitTool = z.object({
 // Custom tools
 export const GetConsoleLogsTool = z.object({
   name: z.literal("browser_get_console_logs"),
-  description: z.literal("Get the console logs from the browser"),
+  description: z.literal("Get console logs from the browser. Essential for debugging failed interactions, JavaScript errors, and page load issues."),
   arguments: z.object({}),
 });
 
@@ -53,7 +53,7 @@ export const ScreenshotTool = z.object({
 // Snapshot tools
 export const SnapshotTool = z.object({
   name: z.literal("browser_snapshot"),
-  description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with."),
+  description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. If elements missing, try 'full' level or browser_execute_js for dynamic content."),
   arguments: z.object({
     level: z.enum(['minimal', 'full', 'scaffold']).optional().describe("Snapshot detail level. 'minimal' shows only interactive elements (default), 'full' shows entire DOM, 'scaffold' shows ultra-compact view"),
     viewportOnly: z.boolean().optional().describe("Only include elements in viewport (default: true)"),
@@ -63,7 +63,7 @@ export const SnapshotTool = z.object({
 
 export const ClickTool = z.object({
   name: z.literal("browser_click"),
-  description: z.literal("Perform click on a web page"),
+  description: z.literal("Perform click on a web page. If click fails, use browser_execute_js to debug element state or try alternative selectors."),
   arguments: z.object({
     ref: z.string().describe("Exact target element reference from the page snapshot"),
     element: z.string().describe("Human-readable element description used to obtain permission to interact with the element"),
@@ -81,7 +81,7 @@ export const HoverTool = z.object({
 
 export const TypeTool = z.object({
   name: z.literal("browser_type"),
-  description: z.literal("Type text into editable element"),
+  description: z.literal("Type text into editable element. For input failures, use browser_get_console_logs and browser_execute_js to check element properties."),
   arguments: z.object({
     ref: z.string().describe("Exact target element reference from the page snapshot"),
     element: z.string().describe("Human-readable element description used to obtain permission to interact with the element"),
@@ -92,7 +92,7 @@ export const TypeTool = z.object({
 
 export const SelectOptionTool = z.object({
   name: z.literal("browser_select_option"),
-  description: z.literal("Select an option in a dropdown"),
+  description: z.literal("Select an option in a dropdown. Complex dropdowns may require browser_execute_js for custom selection logic."),
   arguments: z.object({
     ref: z.string().describe("Exact target element reference from the page snapshot"),
     element: z.string().describe("Human-readable element description used to obtain permission to interact with the element"),
