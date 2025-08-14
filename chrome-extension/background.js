@@ -210,7 +210,12 @@ messageHandlers.set('tabs.close', async ({ index }) => {
 
 // Existing handlers
 messageHandlers.set('snapshot.accessibility', async (options = {}) => {
+  console.log('[snapshot.accessibility] === HANDLER CALLED ===');
   console.log('[snapshot.accessibility] Received options:', JSON.stringify(options));
+  console.log('[snapshot.accessibility] options.level =', options.level);
+  console.log('[snapshot.accessibility] options.mode =', options.mode);
+  console.log('[snapshot.accessibility] Type of options.level:', typeof options.level);
+  console.log('[snapshot.accessibility] Checking if minimal:', options.level === 'minimal');
   
   if (!activeTabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -273,6 +278,62 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     return { snapshot: finalOutput };
   }
   
+  // Check for enhanced minimal mode
+  if (options.level === 'minimal') {
+    console.log('[snapshot.accessibility] === MINIMAL MODE DETECTED ===');
+    console.log('[snapshot.accessibility] Options received:', JSON.stringify(options));
+    console.log('[snapshot.accessibility] Will use enhanced minimal mode');
+    
+    // Inject enhanced minimal script if needed
+    const [checkMinimal] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => {
+        console.log('[PAGE] Checking for captureEnhancedMinimalSnapshot function...');
+        const exists = typeof window.captureEnhancedMinimalSnapshot !== 'undefined';
+        console.log('[PAGE] Enhanced minimal function exists?', exists);
+        return exists;
+      }
+    });
+    
+    console.log('[snapshot.accessibility] Enhanced minimal already injected?', checkMinimal.result);
+    
+    if (!checkMinimal.result) {
+      console.log('[snapshot.accessibility] Injecting minimal-enhanced.js...');
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          files: ['minimal-enhanced.js']
+        });
+        console.log('[snapshot.accessibility] Successfully injected minimal-enhanced.js');
+      } catch (error) {
+        console.error('[snapshot.accessibility] Failed to inject minimal-enhanced.js:', error);
+        throw error;
+      }
+    }
+    
+    console.log('[snapshot.accessibility] Calling captureEnhancedMinimalSnapshot...');
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => {
+        console.log('[PAGE] About to call captureEnhancedMinimalSnapshot');
+        if (typeof window.captureEnhancedMinimalSnapshot === 'function') {
+          const snapshot = window.captureEnhancedMinimalSnapshot();
+          console.log('[PAGE] Enhanced minimal snapshot length:', snapshot ? snapshot.length : 'null');
+          return snapshot;
+        } else {
+          console.error('[PAGE] captureEnhancedMinimalSnapshot is not a function!');
+          return 'ERROR: Enhanced minimal function not found';
+        }
+      }
+    });
+    
+    console.log('[snapshot.accessibility] Enhanced minimal result received, length:', result.result ? result.result.length : 'null');
+    console.log('[snapshot.accessibility] === RETURNING ENHANCED MINIMAL RESULT ===');
+    return { snapshot: result.result };
+  }
+  
+  console.log('[snapshot.accessibility] === USING STANDARD CAPTURE (NOT MINIMAL) ===');
+  console.log('[snapshot.accessibility] Options for standard capture:', JSON.stringify(options));
   const [result] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
     func: captureAccessibilitySnapshot,
@@ -1185,47 +1246,7 @@ function captureAccessibilitySnapshot(options = {}) {
   }
   
   // Check if element should be included based on mode
-  function shouldInclude(element, mode) {
-    if (mode === 'minimal') {
-      // Interactive elements
-      const interactiveTags = ['a', 'button', 'input', 'select', 'textarea', 'label'];
-      const interactiveRoles = ['button', 'link', 'checkbox', 'radio', 'textbox', 'combobox', 'menuitem', 'tab'];
-      
-      const tagName = element.tagName.toLowerCase();
-      const role = element.getAttribute('role') || getRole(element);
-      
-      // Include if interactive
-      if (interactiveTags.includes(tagName) || interactiveRoles.includes(role)) {
-        return true;
-      }
-      
-      // Include headings and landmarks
-      if (['h1', 'h2', 'h3', 'nav', 'main', 'header', 'footer', 'aside'].includes(tagName)) {
-        return true;
-      }
-      
-      // Include if has click handler
-      if (element.onclick || element.hasAttribute('onclick') || element.style.cursor === 'pointer') {
-        return true;
-      }
-      
-      // Include if contenteditable
-      if (element.contentEditable === 'true') {
-        return true;
-      }
-      
-      // Include if it's an ancestor of an interactive element
-      const hasInteractiveDescendant = element.querySelector(interactiveTags.join(','));
-      if (hasInteractiveDescendant) {
-        return true;
-      }
-      
-      return false;
-    }
-    
-    // Full mode - include everything visible
-    return true;
-  }
+  // REMOVED obsolete shouldInclude function - minimal mode now handled by minimal-enhanced.js
   
   // Check if element is in viewport (with buffer)
   function isInViewport(element) {
@@ -1253,21 +1274,8 @@ function captureAccessibilitySnapshot(options = {}) {
       return '';
     }
     
-    const mode = options.level || 'full';
-    
-    // For minimal mode, check if we should include this element
-    if (mode === 'minimal' && !isAncestorOfInteractive && !shouldInclude(element, mode)) {
-      // Still traverse children in case they're interactive
-      const children = Array.from(element.children);
-      let childResults = [];
-      for (const child of children) {
-        const childResult = traverse(child, depth, false);
-        if (childResult) {
-          childResults.push(childResult);
-        }
-      }
-      return childResults.join('\n');
-    }
+    // REMOVED obsolete minimal mode check - now handled by minimal-enhanced.js
+    // This function now only handles FULL mode
     
     const role = getRole(element);
     const name = getAccessibleName(element);
@@ -1308,10 +1316,8 @@ function captureAccessibilitySnapshot(options = {}) {
     const skipChildren = ['input', 'textarea', 'select', 'img', 'br', 'hr'];
     if (!skipChildren.includes(element.tagName.toLowerCase())) {
       const children = Array.from(element.children);
-      // Check if this element or any ancestor is interactive for minimal mode
-      const isInteractive = mode === 'minimal' && shouldInclude(element, mode);
       for (const child of children) {
-        const childResult = traverse(child, depth + 1, isAncestorOfInteractive || isInteractive);
+        const childResult = traverse(child, depth + 1, isAncestorOfInteractive);
         if (childResult) {
           result += '\n' + childResult;
         }
@@ -1324,12 +1330,10 @@ function captureAccessibilitySnapshot(options = {}) {
   // Add page context at the top
   const pageInfo = `Page: ${document.title || 'Untitled'}\nURL: ${window.location.href}\n`;
   
-  // Add mode info
-  const mode = options.level || 'full';
-  const modeInfo = mode === 'minimal' ? '[Minimal snapshot - showing interactive elements only]\n' : '';
+  // This function now only handles FULL mode - minimal mode is handled by minimal-enhanced.js
   const viewportInfo = options.viewportOnly ? '[Viewport filtering enabled]\n' : '';
   
-  return pageInfo + modeInfo + viewportInfo + '\n' + traverse(document.body);
+  return pageInfo + viewportInfo + '\n' + traverse(document.body);
 }
 
 function queryElements(selector, all) {

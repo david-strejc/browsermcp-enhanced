@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BrowserMCP Enhanced",
-  "version": "3.0.1",
+  "version": "3.0.6",
   "description": "Enhanced BrowserMCP with CSP-safe execution and auto-reconnect",
   "permissions": [
     "tabs",

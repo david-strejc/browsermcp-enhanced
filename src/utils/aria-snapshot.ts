@@ -32,7 +32,9 @@ export async function captureAriaSnapshot(
     viewportOnly: options.viewportOnly ?? true
   };
   
+  console.log('[aria-snapshot.ts] Sending snapshot request with options:', snapshotOptions);
   const response = await context.sendSocketMessage("snapshot.accessibility", snapshotOptions);
+  console.log('[aria-snapshot.ts] Received response, snapshot length:', response.snapshot?.length);
   return {
     content: [
       {
