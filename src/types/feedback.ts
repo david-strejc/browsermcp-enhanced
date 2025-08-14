@@ -14,6 +14,7 @@ export enum FeedbackCode {
   NETWORK_ERROR = 7,
   PERMISSION = 8,
   VALIDATION = 9,
+  EXECUTION_ERROR = 10,  // JavaScript execution errors
   UNKNOWN = 99
 }
 

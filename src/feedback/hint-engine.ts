@@ -13,7 +13,12 @@ export enum HintCode {
   REFRESH_SNAPSHOT = 'H3',     // Get new snapshot
   USE_JAVASCRIPT = 'H4',        // Execute JS
   CHECK_CONSOLE = 'H5',        // Check logs
-  USE_UNSAFE_MODE = 'H6',      // Switch to unsafe JS mode        // Check logs
+  USE_UNSAFE_MODE = 'H6',      // Switch to unsafe JS mode
+  
+  // JavaScript execution hints
+  WRAP_IN_IIFE = 'J1',         // Wrap in IIFE for return
+  FUNCTION_WRAPPER = 'J2',      // Need function wrapper
+  USE_API_OBJECT = 'J3',       // Use api.$ in safe mode
   
   // Advanced strategies  
   QUERY_SHADOW_DOM = 'A1',     // Shadow DOM traversal
@@ -254,6 +259,31 @@ export class HintGenerator {
     
     // Base hints by error code
     switch (code) {
+      case FeedbackCode.EXECUTION_ERROR:
+        // JavaScript execution specific hints
+        if (ctx.error?.includes('Illegal return statement')) {
+          candidates.push({
+            hint: 'Wrap code in IIFE: (function() { /* code */ return result; })()',
+            score: 0.95,
+            code: HintCode.WRAP_IN_IIFE
+          });
+        }
+        if (ctx.error?.includes('SyntaxError') && ctx.code?.includes('return')) {
+          candidates.push({
+            hint: 'Top-level return needs function wrapper',
+            score: 0.9,
+            code: HintCode.FUNCTION_WRAPPER
+          });
+        }
+        if (ctx.error?.includes('is not defined') && !ctx.unsafe) {
+          candidates.push({
+            hint: 'Use api.$ in safe mode or enable unsafe: true',
+            score: 0.85,
+            code: HintCode.USE_API_OBJECT
+          });
+        }
+        break;
+        
       case FeedbackCode.NOT_FOUND:
         candidates.push({ 
           hint: 'Use browser_snapshot to refresh references', 

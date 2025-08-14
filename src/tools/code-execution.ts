@@ -103,11 +103,28 @@ export const executeJS: Tool = {
       // Log security event
       console.error(`[Code Execution] Error:`, error.message);
       
+      // Provide helpful hints based on common errors
+      let errorMessage = `Execution failed: ${error.message}`;
+      let hint = '';
+      
+      // Check for common issues and provide hints
+      if (error.message.includes('Illegal return statement')) {
+        hint = '\n\n💡 HINT: In unsafe mode, wrap your code in an IIFE:\n(function() {\n  // your code here\n  return result;\n})();';
+      } else if (error.message.includes('SyntaxError') && validatedParams.code.includes('return') && !validatedParams.code.includes('function')) {
+        hint = '\n\n💡 HINT: Top-level return statements need a function wrapper. Use:\n(function() { return value; })()';
+      } else if (error.message.includes('is not defined') && !useUnsafeMode) {
+        hint = '\n\n💡 HINT: In safe mode, use the api object: api.$(selector), api.getText(), etc.\nFor full DOM access, use unsafe: true';
+      } else if (error.message.includes('Cannot read properties')) {
+        hint = '\n\n💡 HINT: Element might not exist. Check if element exists first:\nconst el = document.querySelector(selector);\nif (el) { /* use element */ }';
+      } else if (error.message.includes('api.') && useUnsafeMode) {
+        hint = '\n\n💡 HINT: In unsafe mode, use standard DOM APIs directly:\ndocument.querySelector() instead of api.$()';
+      }
+      
       return {
         content: [
           {
             type: "text",
-            text: `Execution failed: ${error.message}`,
+            text: errorMessage + hint,
           },
         ],
         isError: true,
