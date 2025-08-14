@@ -21,6 +21,14 @@ type Options = {
 export async function createServerWithTools(options: Options): Promise<Server> {
   const { name, version, tools, resources } = options;
   const context = new Context();
+  
+  // Build toolbox for inter-tool invocation
+  const toolbox: Record<string, Tool> = {};
+  for (const tool of tools) {
+    toolbox[tool.schema.name] = tool;
+  }
+  context.toolbox = toolbox;
+  
   const server = new Server(
     { name, version },
     {

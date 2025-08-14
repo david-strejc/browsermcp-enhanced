@@ -3,6 +3,7 @@ import { WebSocket } from "ws";
 
 import { mcpConfig } from "./config/mcp.config";
 import { MessagePayload, MessageType, SocketMessageMap } from "./types/messages";
+import type { Tool } from "./tools/tool";
 
 const noConnectionMessage = `No connection to browser extension. In order to proceed, you must first connect a tab by clicking the Browser MCP extension icon in the browser toolbar and clicking the 'Connect' button.`;
 
@@ -24,6 +25,7 @@ export class Context {
   private _currentTabId: string | undefined;
   private _connectionAttempts: number = 0;
   private _lastConnectionTime: number | undefined;
+  private _toolbox: Record<string, Tool> = {};
 
   get ws(): WebSocket {
     if (!this._ws) {
@@ -168,5 +170,29 @@ export class Context {
       ...options,
       errorContext: context
     });
+  }
+
+  // Toolbox management for inter-tool invocation
+  get toolbox(): Record<string, Tool> {
+    return this._toolbox;
+  }
+
+  set toolbox(tools: Record<string, Tool>) {
+    this._toolbox = tools;
+  }
+
+  // Call another tool from within a tool
+  async callTool(name: string, args: any): Promise<any> {
+    const tool = this._toolbox[name];
+    if (!tool) {
+      throw new BrowserMCPError(
+        `Tool '${name}' not found in toolbox`,
+        'TOOL_NOT_FOUND',
+        false
+      );
+    }
+    
+    // Call the tool's handler with this context
+    return await tool.handle(this, args);
   }
 }

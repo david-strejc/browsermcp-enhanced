@@ -15,7 +15,9 @@ import { debuggerTools } from "./tools/debugger";
 import { expandRegion, queryElements } from "./tools/scaffold";
 import { executeJS, commonOperations } from "./tools/code-execution";
 import { fileUploadTools } from "./tools/file-upload";
-import { browserMultitool } from "./tools/multitool";
+// import { browserMultitool } from "./tools/multitool"; // Old version disabled
+import { browser_multitool_v3 } from "./tools/multitool-v3";
+import { browser_execute_plan } from "./tools/execute-plan";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -50,7 +52,8 @@ const codeExecutionTools: Tool[] = [
 ];
 
 const snapshotTools: Tool[] = [
-  browserMultitool,  // Add multitool first for preference
+  browser_multitool_v3,  // New recipe generator multitool
+  browser_execute_plan,  // Plan executor
   common.navigate(true),
   common.goBack(true),
   common.goForward(true),
