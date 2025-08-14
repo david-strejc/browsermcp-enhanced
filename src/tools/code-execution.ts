@@ -6,7 +6,7 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). Primary tool for debugging element issues, page state, and complex interactions when standard tools fail. Use unsafe: true for code editors (CodeMirror/Monaco/Ace), framework internals, or complex DOM operations."),
+  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). CRITICAL: This is a DIAGNOSTIC/INSPECTION tool, NOT for interactions! After using this to find elements or debug, ALWAYS return to high-level tools (browser_click, browser_type, etc.) for actual interactions. Only use for: debugging, state inspection, or when NO high-level tool exists. Use unsafe: true ONLY for code editors (CodeMirror/Monaco/Ace), framework internals, or complex DOM operations."),
   arguments: z.object({
     code: z.string().describe(`JavaScript code to execute. 
       

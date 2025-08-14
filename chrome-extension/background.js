@@ -210,6 +210,8 @@ messageHandlers.set('tabs.close', async ({ index }) => {
 
 // Existing handlers
 messageHandlers.set('snapshot.accessibility', async (options = {}) => {
+  console.log('[snapshot.accessibility] Received options:', JSON.stringify(options));
+  
   if (!activeTabId) {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTabId = tab?.id;
@@ -234,10 +236,24 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
   }
   
   // Check for scaffold mode
+  console.log('[snapshot.accessibility] Checking scaffold mode:', options.mode === 'scaffold');
   if (options.mode === 'scaffold') {
+    // First inject the enhanced scaffold script if needed
+    const [checkEnhanced] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => typeof window.captureEnhancedScaffoldSnapshot !== 'undefined'
+    });
+    
+    if (!checkEnhanced.result) {
+      await chrome.scripting.executeScript({
+        target: { tabId: activeTabId },
+        files: ['scaffold-enhanced.js']
+      });
+    }
+    
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: activeTabId },
-      func: captureScaffoldSnapshot
+      func: () => window.captureEnhancedScaffoldSnapshot()
     });
     
     // Add popup info if available
@@ -935,99 +951,6 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
 function estimateTokens(text) {
   // Rough estimate: ~4 chars per token
   return Math.ceil((text || '').length / 4);
-}
-
-// Capture ultra-minimal scaffold view
-function captureScaffoldSnapshot() {
-  const landmarks = [];
-  const MAX_REGIONS = 15; // Limit number of regions
-  
-  // Find major landmarks only
-  const selectors = [
-    'header, [role="banner"]',
-    'nav, [role="navigation"]', 
-    'main, [role="main"]',
-    'footer, [role="contentinfo"]'
-  ];
-  
-  selectors.forEach(selector => {
-    if (landmarks.length >= MAX_REGIONS) return;
-    
-    const elements = document.querySelectorAll(selector);
-    for (let i = 0; i < Math.min(elements.length, 2); i++) { // Max 2 of each type
-      const element = elements[i];
-      if (landmarks.length >= MAX_REGIONS) break;
-      if (element.dataset.scaffoldSeen) continue;
-      
-      element.dataset.scaffoldSeen = 'true';
-      
-      // Count interactive elements
-      const interactive = element.querySelectorAll('a, button, input, select, textarea');
-      
-      // Get very brief preview (first 3 items only)
-      const preview = Array.from(interactive)
-        .slice(0, 3)
-        .map(el => {
-          const text = el.textContent || el.value || el.placeholder || '';
-          return text.trim().substring(0, 15);
-        })
-        .filter(Boolean)
-        .join(', ');
-      
-      // Check visibility
-      const rect = element.getBoundingClientRect();
-      const visible = rect.top < window.innerHeight && rect.bottom > 0;
-      
-      landmarks.push({
-        ref: window.__elementTracker.getElementId(element),
-        type: element.tagName.toLowerCase(),
-        role: element.getAttribute('role') || element.tagName.toLowerCase(),
-        interactiveCount: interactive.length,
-        preview: preview ? preview.substring(0, 50) : '',
-        visible: visible
-      });
-    }
-  });
-  
-  // Clean up markers
-  document.querySelectorAll('[data-scaffold-seen]').forEach(el => {
-    delete el.dataset.scaffoldSeen;
-  });
-  
-  // Build ULTRA-COMPACT output
-  let output = `Page: ${document.title?.substring(0, 60) || 'Untitled'}\n`;
-  output += `URL: ${window.location.href}\n`;
-  output += `[Scaffold: ${landmarks.length} regions]\n\n`;
-  
-  landmarks.forEach(landmark => {
-    output += `${landmark.type} [ref=${landmark.ref}]`;
-    if (landmark.role !== landmark.type) {
-      output += ` role="${landmark.role}"`;
-    }
-    if (!landmark.visible) {
-      output += ` [hidden]`;
-    }
-    if (landmark.interactiveCount > 0) {
-      output += ` (${landmark.interactiveCount} items)`;
-    }
-    if (landmark.preview) {
-      output += ` "${landmark.preview}"`;
-    }
-    output += `\n`;
-  });
-  
-  // Add main interactive elements summary
-  const allInputs = document.querySelectorAll('input[type="search"], input[type="text"], button[type="submit"]');
-  if (allInputs.length > 0) {
-    output += `\n[Key Elements]\n`;
-    Array.from(allInputs).slice(0, 5).forEach(el => {
-      const ref = window.__elementTracker.getElementId(el);
-      const label = el.placeholder || el.value || el.textContent || el.type;
-      output += `${el.tagName.toLowerCase()} [ref=${ref}] "${label?.substring(0, 30)}"\n`;
-    });
-  }
-  
-  return output;
 }
 
 // Expand specific region with token budget

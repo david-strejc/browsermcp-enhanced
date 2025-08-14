@@ -11,7 +11,10 @@ export async function captureAriaSnapshot(
                       options.mode === 'scaffold' || 
                       (!options.level && !options.mode); // Default to scaffold if no options
   
+  console.log('[captureAriaSnapshot] Options:', options, 'useScaffold:', useScaffold);
+  
   if (useScaffold) {
+    console.log('[captureAriaSnapshot] Sending scaffold mode request');
     const response = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
     return {
       content: [
