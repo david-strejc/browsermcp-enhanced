@@ -34,3 +34,6 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Implementation plans
+HINT-SYSTEM-IMPLEMENTATION.md
