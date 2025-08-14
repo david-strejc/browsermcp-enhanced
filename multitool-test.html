@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser MCP Multitool Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #007bff;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 0;
+        }
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        label {
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 5px;
+            display: block;
+        }
+        input, select, textarea {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .output {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            min-height: 50px;
+        }
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        .col {
+            flex: 1;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .search-results {
+            display: none;
+            margin-top: 20px;
+        }
+        .result-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .result-item:hover {
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔧 Browser MCP Multitool Test Suite</h1>
+
+    <!-- Test 1: Simple Form Fill -->
+    <div class="test-section">
+        <h2>1. Simple Form Fill Pattern</h2>
+        <form id="simple-form">
+            <div>
+                <label for="firstName">First Name</label>
+                <input type="text" id="firstName" name="firstName" placeholder="Enter first name">
+            </div>
+            <div>
+                <label for="lastName">Last Name</label>
+                <input type="text" id="lastName" name="lastName" placeholder="Enter last name">
+            </div>
+            <div>
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" placeholder="user@example.com">
+            </div>
+            <div>
+                <label for="phone">Phone</label>
+                <input type="tel" id="phone" name="phone" placeholder="+1 234 567 8900">
+            </div>
+            <button type="submit">Submit Form</button>
+        </form>
+        <div class="output" id="simple-output">Form output will appear here...</div>
+    </div>
+
+    <!-- Test 2: Login Pattern -->
+    <div class="test-section">
+        <h2>2. Login Pattern</h2>
+        <form id="login-form">
+            <div>
+                <label for="username">Username or Email</label>
+                <input type="text" id="username" name="username" placeholder="Enter username">
+            </div>
+            <div>
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter password">
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="rememberMe" name="rememberMe">
+                <label for="rememberMe">Remember me</label>
+            </div>
+            <button type="submit">Sign In</button>
+        </form>
+        <div class="output" id="login-output">Login status will appear here...</div>
+    </div>
+
+    <!-- Test 3: Search Pattern -->
+    <div class="test-section">
+        <h2>3. Search Pattern</h2>
+        <form id="search-form">
+            <div style="display: flex; gap: 10px;">
+                <input type="search" id="searchQuery" name="q" placeholder="Search for anything..." style="flex: 1;">
+                <button type="submit">Search</button>
+            </div>
+        </form>
+        <div class="search-results" id="search-results">
+            <h3>Search Results:</h3>
+            <div id="results-container"></div>
+        </div>
+        <div class="output" id="search-output">Search query will appear here...</div>
+    </div>
+
+    <!-- Test 4: Complex Registration Form -->
+    <div class="test-section">
+        <h2>4. Complex Registration Form</h2>
+        <form id="registration-form">
+            <div class="row">
+                <div class="col">
+                    <label for="regFirstName">First Name *</label>
+                    <input type="text" id="regFirstName" name="firstName" required>
+                </div>
+                <div class="col">
+                    <label for="regLastName">Last Name *</label>
+                    <input type="text" id="regLastName" name="lastName" required>
+                </div>
+            </div>
+            <div>
+                <label for="regEmail">Email Address *</label>
+                <input type="email" id="regEmail" name="email" required>
+            </div>
+            <div>
+                <label for="regPassword">Password *</label>
+                <input type="password" id="regPassword" name="password" required>
+            </div>
+            <div>
+                <label for="regConfirmPassword">Confirm Password *</label>
+                <input type="password" id="regConfirmPassword" name="confirmPassword" required>
+            </div>
+            <div>
+                <label for="country">Country</label>
+                <select id="country" name="country">
+                    <option value="">Select a country</option>
+                    <option value="us">United States</option>
+                    <option value="uk">United Kingdom</option>
+                    <option value="ca">Canada</option>
+                    <option value="au">Australia</option>
+                    <option value="de">Germany</option>
+                    <option value="fr">France</option>
+                </select>
+            </div>
+            <div>
+                <label for="bio">Bio</label>
+                <textarea id="bio" name="bio" rows="4" placeholder="Tell us about yourself..."></textarea>
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="terms" name="terms" required>
+                <label for="terms">I agree to the Terms and Conditions *</label>
+            </div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="newsletter" name="newsletter">
+                <label for="newsletter">Subscribe to newsletter</label>
+            </div>
+            <button type="submit">Create Account</button>
+        </form>
+        <div class="output" id="registration-output">Registration data will appear here...</div>
+    </div>
+
+    <!-- Test 5: Modal/Popup Dismissal -->
+    <div class="test-section">
+        <h2>5. Modal Dismissal Pattern</h2>
+        <button onclick="showModal()">Show Modal</button>
+        <div class="output" id="modal-output">Modal status will appear here...</div>
+    </div>
+
+    <!-- Modal -->
+    <div id="testModal" class="modal">
+        <div class="modal-content">
+            <h3>Cookie Consent</h3>
+            <p>We use cookies to enhance your experience. Do you accept?</p>
+            <div class="modal-buttons">
+                <button onclick="acceptModal()">Accept</button>
+                <button onclick="rejectModal()">Reject</button>
+                <button onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test 6: Navigation Sequence -->
+    <div class="test-section">
+        <h2>6. Navigation Sequence Pattern</h2>
+        <nav>
+            <button onclick="navigate('home')">Home</button>
+            <button onclick="navigate('products')">Products</button>
+            <button onclick="navigate('about')">About</button>
+            <button onclick="navigate('contact')">Contact</button>
+        </nav>
+        <div class="output" id="nav-output">Current page: home</div>
+    </div>
+
+    <!-- Test 7: Dynamic Form Fields -->
+    <div class="test-section">
+        <h2>7. Dynamic Form Fields</h2>
+        <form id="dynamic-form">
+            <div id="dynamic-fields">
+                <div>
+                    <label>Field 1</label>
+                    <input type="text" name="field1" placeholder="Dynamic field 1">
+                </div>
+            </div>
+            <button type="button" onclick="addField()">Add Field</button>
+            <button type="submit">Submit Dynamic Form</button>
+        </form>
+        <div class="output" id="dynamic-output">Dynamic form data will appear here...</div>
+    </div>
+
+    <script>
+        // Form submission handlers
+        document.getElementById('simple-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            document.getElementById('simple-output').textContent = 'Submitted: ' + JSON.stringify(data, null, 2);
+        });
+
+        document.getElementById('login-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            data.rememberMe = e.target.rememberMe.checked;
+            document.getElementById('login-output').textContent = 'Login attempt: ' + JSON.stringify(data, null, 2);
+            if (data.username === 'test' && data.password === 'password') {
+                document.getElementById('login-output').textContent += '\n✅ Login successful!';
+            } else {
+                document.getElementById('login-output').textContent += '\n❌ Invalid credentials';
+            }
+        });
+
+        document.getElementById('search-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const query = e.target.q.value;
+            document.getElementById('search-output').textContent = 'Searching for: "' + query + '"';
+            
+            // Simulate search results
+            const results = document.getElementById('search-results');
+            const container = document.getElementById('results-container');
+            results.style.display = 'block';
+            container.innerHTML = '';
+            
+            for (let i = 1; i <= 5; i++) {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.textContent = `Result ${i} for "${query}"`;
+                container.appendChild(item);
+            }
+        });
+
+        document.getElementById('registration-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            data.terms = e.target.terms.checked;
+            data.newsletter = e.target.newsletter.checked;
+            document.getElementById('registration-output').textContent = 'Registration data: ' + JSON.stringify(data, null, 2);
+        });
+
+        document.getElementById('dynamic-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            document.getElementById('dynamic-output').textContent = 'Dynamic form: ' + JSON.stringify(data, null, 2);
+        });
+
+        // Modal functions
+        function showModal() {
+            document.getElementById('testModal').style.display = 'flex';
+            document.getElementById('modal-output').textContent = 'Modal is open';
+        }
+
+        function closeModal() {
+            document.getElementById('testModal').style.display = 'none';
+            document.getElementById('modal-output').textContent = 'Modal closed';
+        }
+
+        function acceptModal() {
+            closeModal();
+            document.getElementById('modal-output').textContent = 'Modal accepted and closed';
+        }
+
+        function rejectModal() {
+            closeModal();
+            document.getElementById('modal-output').textContent = 'Modal rejected and closed';
+        }
+
+        // Navigation
+        function navigate(page) {
+            document.getElementById('nav-output').textContent = 'Current page: ' + page;
+        }
+
+        // Dynamic fields
+        let fieldCount = 1;
+        function addField() {
+            fieldCount++;
+            const container = document.getElementById('dynamic-fields');
+            const fieldDiv = document.createElement('div');
+            fieldDiv.innerHTML = `
+                <label>Field ${fieldCount}</label>
+                <input type="text" name="field${fieldCount}" placeholder="Dynamic field ${fieldCount}">
+            `;
+            container.appendChild(fieldDiv);
+        }
+
+        // Auto-dismiss modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>

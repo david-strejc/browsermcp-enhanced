@@ -6,7 +6,7 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). Primary tool for debugging element issues, page state, and complex interactions when standard tools fail."),
+  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). Primary tool for debugging element issues, page state, and complex interactions when standard tools fail. Use unsafe: true for code editors (CodeMirror/Monaco/Ace), framework internals, or complex DOM operations."),
   arguments: z.object({
     code: z.string().describe(`JavaScript code to execute. 
       
@@ -36,6 +36,8 @@ const ExecuteCodeTool = z.object({
       
       UNSAFE MODE (when enabled):
       Full access to window, document, fetch, chrome APIs, and all browser features.
+      Required for: CodeMirror/Monaco/Ace editor APIs, React/Vue internals, complex DOM manipulation.
+      Example for CodeMirror: { code: 'document.querySelector(".CodeMirror").CodeMirror.setValue("code")', unsafe: true }
       Use with caution!`),
     timeout: z.number().optional().default(5000).describe("Execution timeout in milliseconds"),
     unsafe: z.boolean().optional().describe("Use unsafe mode (requires server/extension configuration)")

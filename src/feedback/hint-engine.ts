@@ -13,6 +13,7 @@ export enum HintCode {
   REFRESH_SNAPSHOT = 'H3',     // Get new snapshot
   USE_JAVASCRIPT = 'H4',        // Execute JS
   CHECK_CONSOLE = 'H5',        // Check logs
+  USE_UNSAFE_MODE = 'H6',      // Switch to unsafe JS mode        // Check logs
   
   // Advanced strategies  
   QUERY_SHADOW_DOM = 'A1',     // Shadow DOM traversal
@@ -27,6 +28,8 @@ export enum HintCode {
   HANDLE_AB_TEST = 'E3',        // A/B variations
   CLEAR_OVERLAYS = 'E4',        // Remove blocking elements
   FORCE_INTERACTION = 'E5',     // Override restrictions
+  EDITOR_INTERACTION = 'E6',    // Code editor manipulation
+  COMPLEX_DOM_OPERATION = 'E7', // Complex DOM manipulation
   
   // Compound strategies
   PARALLEL_ATTEMPTS = 'P1',     // Try multiple approaches
@@ -81,6 +84,50 @@ export const RecoveryMacros = {
     { tool: 'browser_snapshot', level: 'minimal' },
     { tool: 'browser_execute_js', code: `!!document.querySelector('[type="password"], [name*="login"], .auth, .signin')` },
     { condition: 'if_true', hint: 'Authentication required. Login first or check cookies.' }
+  ],
+  
+  EDITOR_SETUP: [
+    { tool: 'browser_execute_js', unsafe: true, code: `
+      // Detect code editor type
+      if (window.CodeMirror) return 'CodeMirror';
+      if (window.monaco) return 'Monaco';
+      if (window.ace) return 'Ace';
+      if (document.querySelector('.CodeMirror')) return 'CodeMirror (DOM)';
+      if (document.querySelector('.monaco-editor')) return 'Monaco (DOM)';
+      return 'unknown';
+    `},
+    { tool: 'browser_execute_js', unsafe: true, code: `
+      // Access editor instance
+      const cm = document.querySelector('.CodeMirror')?.CodeMirror;
+      if (cm) {
+        cm.setValue('[CONTENT]');
+        return 'content set';
+      }
+      // Fallback for Monaco/Ace
+      const monaco = window.monaco?.editor?.getModels()?.[0];
+      if (monaco) {
+        monaco.setValue('[CONTENT]');
+        return 'content set';
+      }
+    `}
+  ],
+  
+  COMPLEX_DOM: [
+    { tool: 'browser_execute_js', unsafe: true, code: `
+      // For complex DOM operations that safe mode can't handle
+      const element = document.querySelector('[SELECTOR]');
+      if (element && element.__reactInternalFiber) {
+        // React component - access props/state
+        const fiber = element.__reactInternalFiber;
+        return fiber.memoizedProps;
+      }
+      if (element && element.__vue__) {
+        // Vue component - access data
+        return element.__vue__.$data;
+      }
+      // Generic complex operation
+      [OPERATION]
+    `}
   ]
 };
 
@@ -321,6 +368,28 @@ export class HintGenerator {
           score: 0.7,
           code: HintCode.DIAGNOSTIC_SUITE
         });
+        
+        // Check for safe mode limitations
+        if (ctx.error?.includes('Expression too complex') || 
+            ctx.error?.includes('safe mode')) {
+          candidates.push({
+            hint: 'Error suggests safe mode limitations. Use browser_execute_js with unsafe: true for complex operations like CodeMirror.setValue()',
+            score: 1.0,
+            code: HintCode.USE_UNSAFE_MODE
+          });
+        }
+        
+        // Check for editor-specific patterns
+        if (ctx.error?.includes('cm.setValue') || 
+            ctx.error?.includes('CodeMirror') ||
+            ctx.error?.includes('monaco') ||
+            ctx.error?.includes('ace')) {
+          candidates.push({
+            hint: 'Code editor detected. Use browser_execute_js with unsafe: true to access editor API methods',
+            score: 0.95,
+            code: HintCode.EDITOR_INTERACTION
+          });
+        }
         break;
     }
     

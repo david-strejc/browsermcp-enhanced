@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Browser MCP Test Page</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        h1 { color: #333; }
+        .CodeMirror { height: 300px; border: 1px solid #ddd; }
+        button { margin: 10px 5px; padding: 10px 20px; font-size: 16px; }
+        #output { margin-top: 20px; padding: 10px; background: #f5f5f5; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <h1>Browser MCP Test Page</h1>
+    
+    <h2>CodeMirror Editor</h2>
+    <textarea id="code">// Test JavaScript code
+function hello() {
+    console.log("Hello from CodeMirror!");
+}</textarea>
+    
+    <div>
+        <button onclick="getValue()">Get Value</button>
+        <button onclick="setValue()">Set Test Value</button>
+        <button onclick="clearEditor()">Clear</button>
+    </div>
+    
+    <div id="output"></div>
+    
+    <h2>Test Elements</h2>
+    <input type="text" id="testInput" placeholder="Test input field" />
+    <button id="testButton">Test Button</button>
+    
+    <script>
+        // Initialize CodeMirror
+        var editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+            lineNumbers: true,
+            mode: "javascript",
+            theme: "default"
+        });
+        
+        function getValue() {
+            var value = editor.getValue();
+            document.getElementById('output').innerText = 'Editor value:\n' + value;
+        }
+        
+        function setValue() {
+            editor.setValue('// New value set by test\nfunction test() {\n    return "Testing";\n}');
+            document.getElementById('output').innerText = 'Value set!';
+        }
+        
+        function clearEditor() {
+            editor.setValue('');
+            document.getElementById('output').innerText = 'Editor cleared!';
+        }
+        
+        // Test button click handler
+        document.getElementById('testButton').onclick = function() {
+            document.getElementById('output').innerText = 'Button clicked at ' + new Date().toLocaleTimeString();
+        };
+    </script>
+</body>
+</html>

@@ -194,6 +194,35 @@ function evaluateExpression(expr, api) {
   if (expr === 'document.documentElement') return document.documentElement;
   if (expr === 'document.body') return document.body;
   
+  // Handle common querySelector patterns
+  if (expr.startsWith('document.querySelector(') && expr.endsWith(')')) {
+    const selector = expr.slice(23, -1);
+    // Remove quotes from selector
+    const cleanSelector = selector.replace(/^["'`]|["'`]$/g, '');
+    return document.querySelector(cleanSelector);
+  }
+  
+  if (expr.startsWith('document.querySelectorAll(') && expr.endsWith(')')) {
+    const selector = expr.slice(27, -1);
+    const cleanSelector = selector.replace(/^["'`]|["'`]$/g, '');
+    return Array.from(document.querySelectorAll(cleanSelector));
+  }
+  
+  // Handle common element property access patterns
+  if (expr.includes('.value') || expr.includes('.textContent') || 
+      expr.includes('.innerHTML') || expr.includes('.innerText')) {
+    // Check if it's a safe property access pattern
+    const match = expr.match(/^document\.querySelector\(['"`]([^'"`]+)['"`]\)\.(value|textContent|innerHTML|innerText)$/);
+    if (match) {
+      const [, selector, property] = match;
+      const element = document.querySelector(selector);
+      if (element) {
+        return element[property];
+      }
+      return null;
+    }
+  }
+  
   // Handle window properties
   if (expr === 'window.location.href') return window.location.href;
   if (expr === 'window.location.host') return window.location.host;
@@ -232,8 +261,28 @@ function evaluateExpression(expr, api) {
   if (expr === 'null') return null;
   if (expr === 'undefined') return undefined;
   
-  // For complex expressions, we need unsafe mode
-  throw new Error(`Expression too complex for safe mode: "${expr}". Use unsafe mode for arbitrary JavaScript.`);
+  // Detect common patterns that need unsafe mode
+  if (expr.includes('.CodeMirror') || expr.includes('cm.setValue') || 
+      expr.includes('monaco.editor') || expr.includes('ace.edit')) {
+    throw new Error(`Code editor API detected. Use unsafe: true to access editor methods like setValue(). Expression: "${expr}"`);
+  }
+  
+  if (expr.includes('.__reactInternalFiber') || expr.includes('.__vue__') ||
+      expr.includes('.$data') || expr.includes('.setState')) {
+    throw new Error(`Framework internals detected. Use unsafe: true to access React/Vue component internals. Expression: "${expr}"`);
+  }
+  
+  if (expr.includes('eval(') || expr.includes('Function(') || 
+      expr.includes('setTimeout(') || expr.includes('setInterval(')) {
+    throw new Error(`Dynamic code execution detected. Use unsafe: true for eval/Function/timers. Expression: "${expr}"`);
+  }
+  
+  if (expr.includes('=>') || expr.includes('function(') || expr.includes('async ')) {
+    throw new Error(`Function definition detected. Use unsafe: true to define functions. Expression: "${expr}"`);
+  }
+  
+  // For other complex expressions, provide helpful guidance
+  throw new Error(`Expression too complex for safe mode: "${expr}". Use unsafe: true for: 1) Editor APIs (CodeMirror.setValue), 2) Framework internals (React/Vue), 3) Dynamic code execution, 4) Complex object manipulation`);
 }
 
 // Execute code in safe mode by parsing API calls
@@ -247,9 +296,17 @@ async function executeSafeCode(code, signal) {
   if (code.trim().startsWith('return ')) {
     const expression = code.trim().substring(7).trim().replace(/;$/, '');
     
-    // Handle API calls first
-    if (expression.startsWith('api.')) {
-      return await executeAPICall(expression.substring(4), api, signal);
+    // Handle API calls first (should handle chained calls and logical operators)
+    if (expression.includes('api.')) {
+      // Check if it's a complex expression with logical operators
+      if (expression.includes('||') || expression.includes('&&')) {
+        // For now, reject complex logical expressions in safe mode
+        throw new Error(`Complex logical expressions not supported in safe mode. Use unsafe: true for complex logic.`);
+      }
+      // Simple API call
+      if (expression.startsWith('api.')) {
+        return await executeAPICall(expression.substring(4), api, signal);
+      }
     }
     
     // Handle simple math
@@ -257,8 +314,8 @@ async function executeSafeCode(code, signal) {
       return evaluateMath(expression);
     }
     
-    // Handle object literals
-    if (expression.startsWith('{') && expression.endsWith('}')) {
+    // Handle object literals (but be more careful about detection)
+    if (expression.startsWith('{') && expression.endsWith('}') && !expression.includes('\n')) {
       try {
         // Safe JSON parse for simple objects
         return JSON.parse(expression.replace(/'/g, '"').replace(/(\w+):/g, '"$1":'));
