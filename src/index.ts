@@ -18,6 +18,7 @@ import { fileUploadTools } from "./tools/file-upload";
 // import { browserMultitool } from "./tools/multitool"; // Old version disabled
 import { browser_multitool_v3 } from "./tools/multitool-v3";
 import { browser_execute_plan } from "./tools/execute-plan";
+import { browser_save_hint, browser_get_hints } from "./hints/index";
 import type { Tool } from "./tools/tool";
 
 import packageJSON from "../package.json";
@@ -51,6 +52,11 @@ const codeExecutionTools: Tool[] = [
   commonOperations,
 ];
 
+const hintTools: Tool[] = [
+  browser_save_hint,
+  browser_get_hints,
+];
+
 const snapshotTools: Tool[] = [
   browser_multitool_v3,  // New recipe generator multitool
   browser_execute_plan,  // Plan executor
@@ -69,6 +75,7 @@ const snapshotTools: Tool[] = [
   ...scaffoldTools,
   ...codeExecutionTools,
   ...fileUploadTools,
+  ...hintTools,
 ];
 
 const resources: Resource[] = [];
