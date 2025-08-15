@@ -284,7 +284,22 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     console.log('[snapshot.accessibility] Options received:', JSON.stringify(options));
     console.log('[snapshot.accessibility] Will use enhanced minimal mode');
     
-    // Inject enhanced minimal script if needed
+    // CRITICAL: Inject element tracker FIRST (needed for refs)
+    const [checkTracker] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: () => typeof window.__elementTracker !== 'undefined'
+    });
+    
+    if (!checkTracker.result) {
+      console.log('[snapshot.accessibility] Injecting element-tracker.js...');
+      await chrome.scripting.executeScript({
+        target: { tabId: activeTabId },
+        files: ['element-tracker.js']
+      });
+      console.log('[snapshot.accessibility] Successfully injected element-tracker.js');
+    }
+    
+    // NOW inject enhanced minimal script
     const [checkMinimal] = await chrome.scripting.executeScript({
       target: { tabId: activeTabId },
       func: () => {
@@ -312,19 +327,28 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     }
     
     console.log('[snapshot.accessibility] Calling captureEnhancedMinimalSnapshot...');
+    // Extract pagination options from the main options
+    const paginationOptions = {
+      page: options.page || 1,
+      pageHeight: options.pageHeight,
+      pageMode: options.pageMode || 'viewport'
+    };
+    console.log('[snapshot.accessibility] Pagination options:', paginationOptions);
+    
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: activeTabId },
-      func: () => {
-        console.log('[PAGE] About to call captureEnhancedMinimalSnapshot');
+      func: (paginationOpts) => {
+        console.log('[PAGE] About to call captureEnhancedMinimalSnapshot with options:', paginationOpts);
         if (typeof window.captureEnhancedMinimalSnapshot === 'function') {
-          const snapshot = window.captureEnhancedMinimalSnapshot();
+          const snapshot = window.captureEnhancedMinimalSnapshot(paginationOpts);
           console.log('[PAGE] Enhanced minimal snapshot length:', snapshot ? snapshot.length : 'null');
           return snapshot;
         } else {
           console.error('[PAGE] captureEnhancedMinimalSnapshot is not a function!');
           return 'ERROR: Enhanced minimal function not found';
         }
-      }
+      },
+      args: [paginationOptions]
     });
     
     console.log('[snapshot.accessibility] Enhanced minimal result received, length:', result.result ? result.result.length : 'null');

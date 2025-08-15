@@ -1,54 +1,89 @@
-// Enhanced minimal mode with generic optimizations
-// Based on universal principles that work across all websites
+// Enhanced minimal mode with Component Boundary Scoring Algorithm
+// Generic solution for associating interactive elements with their content across ALL websites
 
 console.log('[minimal-enhanced.js] Script loaded at', new Date().toISOString());
 
-function captureEnhancedMinimalSnapshot() {
-  console.log('[minimal-enhanced.js] captureEnhancedMinimalSnapshot called');
+function captureEnhancedMinimalSnapshot(options = {}) {
+  console.log('[minimal-enhanced.js] captureEnhancedMinimalSnapshot called with options:', options);
   const startTime = performance.now();
   const MAX_EXECUTION_TIME = 100; // ms budget
-  const MAX_DEPTH = 4; // Max levels to ascend for local window
-  const MAX_BRANCHING = 3; // Stop ascending if parent has more children
-  const VIEWPORT_BUFFER = 1.2; // Include 20% outside viewport
+  const MAX_DEPTH = 8; // Max levels to ascend for container search
   const MAX_TEXT_LENGTH = 100; // Truncate long text
+  const VIEWPORT_BUFFER = 1.2; // Include 20% outside viewport
+  
+  // Reset hash cache for each capture
+  let hashCache = new WeakMap();
+  
+  // Pagination options
+  const page = options.page || 1;
+  const pageHeight = options.pageHeight || window.innerHeight;
+  const pageMode = options.pageMode || 'viewport';
+  
+  let actualPageHeight = pageHeight;
+  if (pageMode === 'fullhd') {
+    actualPageHeight = 1080;
+  } else if (pageMode === 'viewport') {
+    actualPageHeight = window.innerHeight;
+  }
+  
+  const pageTop = (page - 1) * actualPageHeight;
+  const pageBottom = page * actualPageHeight;
+  
+  console.log(`[minimal-enhanced.js] Page ${page}: top=${pageTop}, bottom=${pageBottom}, height=${actualPageHeight}`);
   
   // Helper: Check if element is truly visible
   function isVisible(element) {
-    // Check computed styles
     const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden') return false;
-    if (style.opacity === '0') return false;
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+      return false;
+    }
     
-    // Check dimensions
+    if (style.pointerEvents === 'none') {
+      return false;
+    }
+    
     const rect = element.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return false;
+    if (rect.width > 0.5 && rect.height > 0.5) {
+      return true;
+    }
     
-    // Element is visible
-    return true;
+    const isInteractive = element.matches('a, button, input, select, textarea, [onclick], [role="button"], [role="link"], [data-action], [data-buy]');
+    if (!isInteractive) {
+      return false;
+    }
+    
+    const children = [...(element.children || []), ...(element.shadowRoot?.children || [])];
+    
+    if (children.length > 0) {
+      return children.some(child => {
+        const childRect = child.getBoundingClientRect();
+        return childRect.width > 0.5 && childRect.height > 0.5;
+      });
+    }
+    
+    return false;
   }
   
-  // Helper: Check if element is in viewport (with buffer)
-  function isInViewport(element, buffer = VIEWPORT_BUFFER) {
-    // Always include fixed position elements
+  // Helper: Check if element is in current page
+  function isInPage(element, buffer = VIEWPORT_BUFFER) {
     const style = window.getComputedStyle(element);
     if (style.position === 'fixed' || style.position === 'sticky') return true;
     
     const rect = element.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
-    const bufferPx = viewportHeight * (buffer - 1);
+    const elementTop = window.scrollY + rect.top;
+    const elementBottom = window.scrollY + rect.bottom;
+    const bufferPx = actualPageHeight * (buffer - 1);
     
     return (
-      rect.bottom >= -bufferPx &&
-      rect.top <= viewportHeight + bufferPx &&
+      elementBottom >= pageTop - bufferPx &&
+      elementTop <= pageBottom + bufferPx &&
       rect.right >= 0 &&
-      rect.left <= viewportWidth
+      rect.left <= window.innerWidth
     );
   }
   
   // Helper: Get all interactive elements
   function getInteractiveElements() {
-    // Comprehensive interactive selectors
     const selectors = [
       'a[href]',
       'button',
@@ -69,27 +104,32 @@ function captureEnhancedMinimalSnapshot() {
       'details',
       '[onclick]',
       '[aria-haspopup]',
-      '[aria-expanded]'
+      '[aria-expanded]',
+      '[data-action]',
+      '[data-buy]',
+      '[data-click]',
+      '[data-link]',
+      '.btn',
+      '.button'
     ];
     
     const elements = new Set();
     
-    // Query all interactive elements
     selectors.forEach(selector => {
       document.querySelectorAll(selector).forEach(el => {
-        if (isVisible(el) && isInViewport(el)) {
+        if (isVisible(el) && isInPage(el)) {
           elements.add(el);
         }
       });
     });
     
-    // Also check shadow DOMs recursively
+    // Check shadow DOMs
     function findInShadow(root) {
       root.querySelectorAll('*').forEach(el => {
         if (el.shadowRoot) {
           selectors.forEach(selector => {
             el.shadowRoot.querySelectorAll(selector).forEach(shadowEl => {
-              if (isVisible(shadowEl) && isInViewport(shadowEl)) {
+              if (isVisible(shadowEl) && isInPage(shadowEl)) {
                 elements.add(shadowEl);
               }
             });
@@ -103,102 +143,63 @@ function captureEnhancedMinimalSnapshot() {
     return Array.from(elements);
   }
   
-  // Helper: Get associated labels and ARIA elements
-  function getAssociatedElements(element) {
-    const associated = new Set();
-    
-    // Check for label[for="id"]
-    if (element.id) {
-      const label = document.querySelector(`label[for="${element.id}"]`);
-      if (label && isVisible(label)) associated.add(label);
+  // Helper: Get accessible name
+  function getAccessibleName(element) {
+    if (element.getAttribute('aria-labelledby')) {
+      const ids = element.getAttribute('aria-labelledby').split(' ');
+      return ids.map(id => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
     }
-    
-    // Check for parent label
-    const parentLabel = element.closest('label');
-    if (parentLabel && isVisible(parentLabel)) associated.add(parentLabel);
-    
-    // Check for aria-labelledby
-    const labelledBy = element.getAttribute('aria-labelledby');
-    if (labelledBy) {
-      labelledBy.split(' ').forEach(id => {
-        const el = document.getElementById(id);
-        if (el && isVisible(el)) associated.add(el);
-      });
+    if (element.getAttribute('aria-label')) {
+      return element.getAttribute('aria-label');
     }
-    
-    // Check for aria-describedby
-    const describedBy = element.getAttribute('aria-describedby');
-    if (describedBy) {
-      describedBy.split(' ').forEach(id => {
-        const el = document.getElementById(id);
-        if (el && isVisible(el)) associated.add(el);
-      });
+    if (element.labels && element.labels.length > 0) {
+      return element.labels[0].textContent?.trim();
     }
-    
-    return Array.from(associated);
+    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+      return element.placeholder || element.value || '';
+    }
+    if (element.tagName.match(/^(BUTTON|A)$/)) {
+      return element.textContent?.trim() || '';
+    }
+    return element.textContent?.trim() || '';
   }
   
-  // Helper: Build local window for an element
-  function buildLocalWindow(element, maxDepth = MAX_DEPTH, maxBranching = MAX_BRANCHING) {
-    const nodes = new Set();
-    nodes.add(element);
+  // Helper: Create structural hash with caching
+  function getStructuralHash(element, options = {}) {
+    const { includeContent = true, maxDepth = 2, maxChildren = 3 } = options;
     
-    let current = element;
-    let depth = 0;
-    
-    // Ascend until we hit limits or body
-    while (current.parentElement && depth < maxDepth) {
-      const parent = current.parentElement;
-      
-      // Stop if parent has too many children (branching point)
-      if (parent.children.length > maxBranching) {
-        // But still include the parent as context
-        nodes.add(parent);
-        break;
+    // Check cache first
+    if (hashCache.has(element)) {
+      const cached = hashCache.get(element);
+      const optionsKey = JSON.stringify(options);
+      if (cached[optionsKey]) {
+        return cached[optionsKey];
       }
-      
-      // Stop at semantic boundaries
-      if (parent.tagName.match(/^(MAIN|ARTICLE|SECTION|NAV|ASIDE|HEADER|FOOTER|FORM)$/)) {
-        nodes.add(parent);
-        break;
-      }
-      
-      // Add parent and its children (siblings of current)
-      nodes.add(parent);
-      Array.from(parent.children).forEach(child => {
-        if (isVisible(child)) {
-          nodes.add(child);
-        }
-      });
-      
-      current = parent;
-      depth++;
     }
     
-    return nodes;
-  }
-  
-  // Helper: Create structural hash for deduplication
-  function getStructuralHash(element) {
-    // Create a hash based on tag structure and attributes
     const parts = [];
     
     function traverse(el, depth = 0) {
-      if (depth > 2) return; // Only hash 2 levels deep
+      if (depth > maxDepth) return;
       
       parts.push(el.tagName);
       
-      // Include semantic attributes in hash
       ['role', 'type', 'name', 'aria-label'].forEach(attr => {
         if (el.hasAttribute(attr)) {
           parts.push(`@${attr}`);
         }
       });
       
-      // Include child structure
-      if (el.children.length > 0 && depth < 2) {
+      if (depth === 0 && includeContent) {
+        const accName = getAccessibleName(el).toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (accName) {
+          parts.push(`#${accName.slice(0, 12)}`);
+        }
+      }
+      
+      if (el.children.length > 0 && depth < maxDepth) {
         parts.push('[');
-        Array.from(el.children).slice(0, 3).forEach(child => {
+        Array.from(el.children).slice(0, maxChildren).forEach(child => {
           traverse(child, depth + 1);
         });
         parts.push(']');
@@ -206,33 +207,154 @@ function captureEnhancedMinimalSnapshot() {
     }
     
     traverse(element);
-    return parts.join('');
+    const hash = parts.join('');
+    
+    // Store in cache
+    const existing = hashCache.get(element) || {};
+    existing[JSON.stringify(options)] = hash;
+    hashCache.set(element, existing);
+    
+    return hash;
   }
   
-  // Helper: Compact element serialization
+  // NEW: Calculate boundary score for a candidate container
+  function calculateBoundaryScore(candidate, originalElement, depth) {
+    let score = 0;
+    const tagName = candidate.tagName.toLowerCase();
+    const classList = candidate.classList;
+    
+    // 1. High-confidence pattern matching
+    if (tagName === 'tr' && candidate.closest('table')) score += 50;
+    if (tagName === 'form' || tagName === 'fieldset') score += 40;
+    if (tagName === 'article' || classList.contains('post') || classList.contains('tweet')) score += 40;
+    if (classList.contains('card') || classList.contains('panel') || classList.contains('modal-content')) score += 35;
+    if (classList.contains('product') || classList.contains('item')) score += 30;
+    
+    // 2. Semantic tags
+    const tagScores = { 'li': 35, 'section': 25, 'dialog': 25, 'details': 20, 'figure': 15 };
+    score += tagScores[tagName] || 0;
+    
+    // 3. ARIA roles
+    const role = candidate.getAttribute('role');
+    const roleScores = { 
+      'article': 40, 'listitem': 35, 'row': 35, 'form': 30, 
+      'region': 25, 'dialog': 25, 'group': 15, 'menuitem': 20 
+    };
+    if (role) score += roleScores[role] || 0;
+    
+    // 4. Data attributes (modern web apps)
+    if (candidate.dataset.component || candidate.dataset.testid || candidate.dataset.item) score += 25;
+    if (candidate.hasAttribute('itemscope')) score += 30;
+    
+    // 5. Sibling similarity (critical for lists)
+    const parent = candidate.parentElement;
+    if (parent && parent.children.length > 1 && parent.children.length < 100) {
+      const structuralHash = getStructuralHash(candidate, { includeContent: false });
+      let similarSiblings = 0;
+      for (const child of parent.children) {
+        if (child !== candidate && getStructuralHash(child, { includeContent: false }) === structuralHash) {
+          similarSiblings++;
+        }
+      }
+      if (similarSiblings >= 1) {
+        score += 30 * (1 + Math.min(similarSiblings / 10, 1));
+      }
+    }
+    
+    // 6. Visual separation
+    const style = window.getComputedStyle(candidate);
+    if (parseFloat(style.borderTopWidth) > 0 || parseFloat(style.borderLeftWidth) > 0 || style.boxShadow !== 'none') {
+      score += 10;
+    }
+    if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+      const parentStyle = candidate.parentElement ? window.getComputedStyle(candidate.parentElement) : null;
+      if (!parentStyle || style.backgroundColor !== parentStyle.backgroundColor) {
+        score += 5;
+      }
+    }
+    
+    // 7. Penalties
+    const rect = candidate.getBoundingClientRect();
+    const viewportArea = window.innerWidth * window.innerHeight;
+    if ((rect.width * rect.height) / viewportArea > 0.8) score -= 50; // Too large
+    score -= depth * 5; // Prefer closer ancestors
+    if (tagName === 'div' && score < 10) score -= 10; // Generic div penalty
+    
+    return score;
+  }
+  
+  // NEW: Find the best semantic container for an element
+  function findSemanticContainer(element, maxDepth = MAX_DEPTH) {
+    let candidates = [];
+    let current = element.parentElement;
+    let depth = 0;
+    
+    while (current && current.tagName !== 'BODY' && depth < maxDepth) {
+      const score = calculateBoundaryScore(current, element, depth);
+      candidates.push({ element: current, score });
+      current = current.parentElement;
+      depth++;
+    }
+    
+    if (candidates.length === 0) return null;
+    
+    // Find the candidate with the highest score
+    const bestCandidate = candidates.reduce((best, current) => {
+      return current.score > best.score ? current : best;
+    }, { element: null, score: -Infinity });
+    
+    // Confidence threshold
+    return bestCandidate.score > 10 ? bestCandidate.element : null;
+  }
+  
+  // NEW: Extract key content from a component
+  function extractComponentContent(container) {
+    const content = new Set();
+    
+    // Find headings, images, and significant text
+    container.querySelectorAll('h1, h2, h3, h4, h5, h6, img[alt], p, span, div, td, th').forEach(el => {
+      // Stop at nested components
+      if (el.closest('[data-component-root]') && el.closest('[data-component-root]') !== container) {
+        return;
+      }
+      
+      // Check if visible and not interactive
+      if (isVisible(el) && !el.matches('a, button, input, select, textarea, [role="button"]')) {
+        const text = el.textContent?.trim() || '';
+        
+        // Add if it has meaningful content
+        if ((el.tagName === 'IMG' && el.alt) || 
+            (text.length > 10 && text.length < 300) ||
+            el.tagName.match(/^H[1-6]$/)) {
+          content.add(el);
+        }
+      }
+    });
+    
+    return Array.from(content).slice(0, 5); // Limit to 5 content items per component
+  }
+  
+  // Helper: Serialize element
   function serializeElement(element) {
     const tag = element.tagName.toLowerCase();
     const ref = window.__elementTracker ? window.__elementTracker.getElementId(element) : null;
     
-    // Get meaningful text
-    let text = '';
-    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
-      text = element.value || element.placeholder || '';
-    } else {
-      text = element.textContent?.trim() || element.getAttribute('aria-label') || '';
+    let text = getAccessibleName(element);
+    const isHeading = tag.match(/^h[1-6]$/);
+    const maxLen = isHeading ? 150 : MAX_TEXT_LENGTH;
+    
+    if (text.length > maxLen) {
+      text = text.substring(0, maxLen - 3) + '...';
     }
     
-    // Truncate long text
-    if (text.length > MAX_TEXT_LENGTH) {
-      text = text.substring(0, MAX_TEXT_LENGTH - 3) + '...';
-    }
-    
-    // Build compact representation
     const attrs = [];
     
-    // Include key attributes
+    const role = element.getAttribute('role') || 
+                 (element.tagName === 'BUTTON' ? 'button' : '') ||
+                 (element.tagName === 'A' && element.href ? 'link' : '');
+    if (role) attrs.push(`role:${role}`);
+    
     if (element.type) attrs.push(`type:${element.type}`);
-    if (element.role) attrs.push(`role:${element.role}`);
     if (element.href) attrs.push('href');
     if (element.disabled) attrs.push('disabled');
     if (element.checked) attrs.push('checked');
@@ -246,126 +368,133 @@ function captureEnhancedMinimalSnapshot() {
     return result;
   }
   
-  // Main capture logic
-  const allInteractive = getInteractiveElements();
-  const nodesToKeep = new Set();
-  const structuralHashes = new Map();
-  
-  // Build local windows for all interactive elements
-  allInteractive.forEach(element => {
-    // Get local window
-    const localWindow = buildLocalWindow(element);
-    localWindow.forEach(node => nodesToKeep.add(node));
+  // NEW: Serialize a component with its content and actions
+  function serializeComponent(component) {
+    let output = `Component: ${serializeElement(component.container)}\n`;
     
-    // Get associated labels/ARIA elements
-    const associated = getAssociatedElements(element);
-    associated.forEach(node => nodesToKeep.add(node));
-  });
-  
-  // Group nodes by structural similarity
-  const nodeGroups = new Map();
-  const processedNodes = new Set();
-  
-  nodesToKeep.forEach(node => {
-    if (processedNodes.has(node)) return;
-    
-    const hash = getStructuralHash(node);
-    if (!nodeGroups.has(hash)) {
-      nodeGroups.set(hash, []);
+    if (component.content.length > 0) {
+      output += `  Content:\n`;
+      component.content.forEach(node => {
+        output += `    - ${serializeElement(node)}\n`;
+      });
     }
-    nodeGroups.get(hash).push(node);
-    processedNodes.add(node);
+    
+    if (component.actions.length > 0) {
+      output += `  Actions:\n`;
+      component.actions.forEach(action => {
+        output += `    - ${serializeElement(action)}\n`;
+      });
+    }
+    
+    return output;
+  }
+  
+  // MAIN CAPTURE LOGIC - Component-centric approach
+  const allInteractive = getInteractiveElements();
+  const components = new Map();
+  const processedActions = new Set();
+  
+  // Component identification phase
+  allInteractive.forEach(element => {
+    if (processedActions.has(element)) return;
+    
+    const container = findSemanticContainer(element);
+    if (container) {
+      // Mark this container as a component root
+      container.setAttribute('data-component-root', 'true');
+      
+      if (!components.has(container)) {
+        components.set(container, { 
+          container, 
+          actions: [], 
+          content: [] 
+        });
+      }
+      
+      const component = components.get(container);
+      
+      // Find all actions within this container
+      const actionsInContainer = Array.from(
+        container.querySelectorAll('a, button, input, select, textarea, [role="button"], [role="link"]')
+      ).filter(action => isVisible(action) && isInPage(action) && !processedActions.has(action));
+      
+      actionsInContainer.forEach(action => {
+        component.actions.push(action);
+        processedActions.add(action);
+      });
+      
+      // Ensure the original element is included
+      if (!processedActions.has(element)) {
+        component.actions.push(element);
+        processedActions.add(element);
+      }
+    }
   });
+  
+  // Content extraction phase
+  components.forEach(component => {
+    component.content = extractComponentContent(component.container);
+  });
+  
+  // Handle orphaned actions (not in any component)
+  const orphanedActions = allInteractive.filter(el => !processedActions.has(el));
+  
+  // Calculate total pages
+  const documentHeight = Math.max(
+    document.body.scrollHeight,
+    document.body.offsetHeight,
+    document.documentElement.clientHeight,
+    document.documentElement.scrollHeight,
+    document.documentElement.offsetHeight
+  );
+  const totalPages = Math.ceil(documentHeight / actualPageHeight);
   
   // Build output
   let output = `Page: ${document.title || 'Untitled'}\n`;
   output += `URL: ${window.location.href}\n`;
-  output += `[Enhanced Minimal: ${allInteractive.length} interactive elements found]\n\n`;
+  output += `[Component-Based Minimal - Page ${page}/${totalPages}]\n`;
+  output += `[${allInteractive.length} interactive elements, ${components.size} components]\n`;
+  output += `[Page height: ${actualPageHeight}px, Mode: ${pageMode}]\n\n`;
   
-  // Find major landmarks
-  const landmarks = ['header', 'nav', 'main', 'article', 'aside', 'footer'].map(tag => {
-    return document.querySelector(tag) || document.querySelector(`[role="${tag}"]`);
-  }).filter(Boolean);
-  
-  // Output by regions/landmarks
-  landmarks.forEach(landmark => {
-    if (!nodesToKeep.has(landmark) && !Array.from(nodesToKeep).some(n => landmark.contains(n))) {
-      return; // Skip if no interactive elements in this landmark
-    }
-    
-    const landmarkTag = landmark.tagName.toLowerCase();
-    const landmarkRef = window.__elementTracker ? window.__elementTracker.getElementId(landmark) : null;
-    
-    output += `${landmarkTag}`;
-    if (landmarkRef) output += ` [ref=${landmarkRef}]`;
-    output += '\n';
-    
-    // Find nodes in this landmark
-    const landmarkNodes = Array.from(nodesToKeep).filter(n => landmark.contains(n) && n !== landmark);
-    const groupedInLandmark = new Map();
-    
-    // Group similar elements
-    landmarkNodes.forEach(node => {
-      const hash = getStructuralHash(node);
-      if (!groupedInLandmark.has(hash)) {
-        groupedInLandmark.set(hash, []);
-      }
-      groupedInLandmark.get(hash).push(node);
-    });
-    
-    // Output groups
-    groupedInLandmark.forEach((nodes, hash) => {
-      if (nodes.length > 5) {
-        // Show first 3 and summarize rest
-        nodes.slice(0, 3).forEach(node => {
-          output += `  ${serializeElement(node)}\n`;
-        });
-        output += `  ... (${nodes.length - 3} more similar elements)\n`;
-      } else {
-        // Show all if few
-        nodes.forEach(node => {
-          output += `  ${serializeElement(node)}\n`;
-        });
-      }
-    });
-    
-    output += '\n';
-  });
-  
-  // Add orphaned interactive elements (not in any landmark)
-  const orphaned = Array.from(nodesToKeep).filter(node => {
-    return !landmarks.some(landmark => landmark && landmark.contains(node));
-  });
-  
-  if (orphaned.length > 0) {
-    output += 'content\n';
-    const grouped = new Map();
-    
-    orphaned.forEach(node => {
-      const hash = getStructuralHash(node);
-      if (!grouped.has(hash)) {
-        grouped.set(hash, []);
-      }
-      grouped.get(hash).push(node);
-    });
-    
-    grouped.forEach((nodes, hash) => {
-      if (nodes.length > 5) {
-        nodes.slice(0, 3).forEach(node => {
-          output += `  ${serializeElement(node)}\n`;
-        });
-        output += `  ... (${nodes.length - 3} more similar elements)\n`;
-      } else {
-        nodes.forEach(node => {
-          output += `  ${serializeElement(node)}\n`;
-        });
-      }
+  if (components.size > 0) {
+    output += `[Found ${components.size} Components]\n\n`;
+    let componentIndex = 1;
+    components.forEach(component => {
+      output += `=== Component ${componentIndex} ===\n`;
+      output += serializeComponent(component);
+      output += '\n';
+      componentIndex++;
     });
   }
   
+  if (orphanedActions.length > 0) {
+    output += `[Found ${orphanedActions.length} Orphaned Interactive Elements]\n`;
+    orphanedActions.forEach(element => {
+      output += `  ${serializeElement(element)}\n`;
+    });
+    output += '\n';
+  }
+  
+  // Clean up attribute markers
+  document.querySelectorAll('[data-component-root]').forEach(el => {
+    el.removeAttribute('data-component-root');
+  });
+  
   // Performance info
   const executionTime = performance.now() - startTime;
-  output += `\n[Execution: ${executionTime.toFixed(1)}ms, ${nodesToKeep.size} nodes kept]\n`;
+  output += `[Execution: ${executionTime.toFixed(1)}ms]\n`;
+  
+  // Pagination hints
+  if (totalPages > 1) {
+    output += `\n[Pagination: Page ${page} of ${totalPages}]`;
+    if (page > 1) {
+      output += `\n[Previous page: Use options {page: ${page - 1}}]`;
+    }
+    if (page < totalPages) {
+      output += `\n[Next page: Use options {page: ${page + 1}}]`;
+    }
+    output += `\n[Change page size: Use options {pageMode: 'fullhd'} or {pageHeight: 800}]`;
+  }
   
   return output;
 }
