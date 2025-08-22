@@ -78,8 +78,29 @@ class TestRunner {
     }
   }
 
+  async checkPortAvailable(port) {
+    return new Promise((resolve) => {
+      const net = require('net');
+      const server = net.createServer();
+      
+      server.listen(port, () => {
+        server.once('close', () => resolve(true));
+        server.close();
+      });
+      
+      server.on('error', () => resolve(false));
+    });
+  }
+
   async startTestServer() {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+      // Check if port 9000 is available
+      const portAvailable = await this.checkPortAvailable(9000);
+      if (!portAvailable) {
+        reject(new Error(`Port 9000 is already in use. Please free up the port and try again.\nYou can check what's using the port with: lsof -i :9000`));
+        return;
+      }
+
       console.log(`${colors.blue}🚀 Starting test server...${colors.reset}`);
       
       this.serverProcess = spawn('python3', ['test-server.py'], {

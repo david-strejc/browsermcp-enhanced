@@ -25,7 +25,7 @@ class TestServerHandler(http.server.SimpleHTTPRequestHandler):
         print(f"[{self.log_date_time_string()}] {format % args}")
 
 def main():
-    PORT = 8080
+    PORT = 9000
     
     # Check if port is available, try alternatives
     for port in range(PORT, PORT + 10):
