@@ -25,31 +25,26 @@ class TestServerHandler(http.server.SimpleHTTPRequestHandler):
         print(f"[{self.log_date_time_string()}] {format % args}")
 
 def main():
-    PORT = 8080
+    PORT = 9000
     
-    # Check if port is available, try alternatives
-    for port in range(PORT, PORT + 10):
-        try:
-            with socketserver.TCPServer(("", port), TestServerHandler) as httpd:
-                print(f"Starting test server at http://localhost:{port}/")
-                print(f"Test page available at: http://localhost:{port}/test-elements.html")
-                print("Press Ctrl+C to stop the server")
-                
-                # Change to the script directory
-                script_dir = os.path.dirname(os.path.abspath(__file__))
-                os.chdir(script_dir)
-                
-                httpd.serve_forever()
-        except OSError as e:
-            if e.errno == 98:  # Address already in use
-                print(f"Port {port} is busy, trying {port + 1}")
-                continue
-            else:
-                print(f"Error starting server on port {port}: {e}")
-                sys.exit(1)
-        break
-    else:
-        print("Could not find an available port")
+    try:
+        with socketserver.TCPServer(("", PORT), TestServerHandler) as httpd:
+            print(f"Starting test server at http://localhost:{PORT}/")
+            print(f"Test page available at: http://localhost:{PORT}/test-elements.html")
+            print("Press Ctrl+C to stop the server")
+            
+            # Change to the script directory
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            os.chdir(script_dir)
+            
+            httpd.serve_forever()
+    except OSError as e:
+        if e.errno == 98:  # Address already in use
+            print(f"Error: Port {PORT} is already in use.")
+            print(f"Please free up the port and try again.")
+            print(f"You can check what's using the port with: lsof -i :{PORT}")
+        else:
+            print(f"Error starting server on port {PORT}: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

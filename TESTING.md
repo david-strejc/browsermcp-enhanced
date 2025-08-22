@@ -11,6 +11,13 @@ The testing system consists of:
 3. **Test Pages** - Comprehensive HTML test cases covering edge cases
 4. **Manual Testing Procedures** - Step-by-step validation guides
 
+### ⚠️ Port Usage Notes
+
+**Port 9000 Timing**: After test completion, port 9000 remains in TCP TIME_WAIT state for ~60 seconds before the next test can run.
+
+- **Wait**: 20-30s between test runs for clean start
+- **Retry**: Built-in retry logic (5 attempts with 5s delays) handles quick succession
+
 ## 🚀 Quick Start
 
 ### Running Automated Tests
@@ -169,17 +176,10 @@ node test-runner.js --error-handling
 ### Test Server Options
 
 ```bash
-# Start server on default port (9000)
+# Start server on port 9000 (fixed)
 python3 test-server.py
 
-# Start server on specific port
-python3 test-server.py --port 8080
-
-# Enable debug mode
-python3 test-server.py --debug
-
-# Show CORS headers
-python3 test-server.py --cors
+# Server runs only on port 9000 - no port options available
 ```
 
 ## 📊 Test Result Analysis
@@ -232,10 +232,11 @@ Total Tests: 24
 ❌ Error: Server connection refused
 
 Solution:
-1. Check if port 9000 is available
-2. Try different port: python3 test-server.py --port 8080
-3. Check firewall settings
-4. Verify Python 3 installation
+1. Check if port 9000 is available with: lsof -i :9000
+2. Kill any process using port 9000
+3. Wait 60s for TCP TIME_WAIT to clear
+4. Check firewall settings
+5. Verify Python 3 installation
 ```
 
 #### Element Reference Failures
