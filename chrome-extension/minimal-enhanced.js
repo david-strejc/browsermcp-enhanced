@@ -143,8 +143,19 @@ function captureEnhancedMinimalSnapshot(options = {}) {
     return Array.from(elements);
   }
   
-  // Helper: Get accessible name
+  // Since Chrome extensions don't support require, we'll inline the enhanced functions
+  // or load them if they're available in the global scope
+  let computeAccessibleName = window.computeAccessibleName;
+  let findSemanticBoundary = window.findSemanticBoundary;
+  
+  // Helper: Get accessible name (enhanced version)
   function getAccessibleName(element) {
+    // Use enhanced computation if available
+    if (typeof computeAccessibleName === 'function') {
+      return computeAccessibleName(element);
+    }
+    
+    // Fallback to basic implementation
     if (element.getAttribute('aria-labelledby')) {
       const ids = element.getAttribute('aria-labelledby').split(' ');
       return ids.map(id => document.getElementById(id)?.textContent?.trim()).filter(Boolean).join(' ');
@@ -155,13 +166,58 @@ function captureEnhancedMinimalSnapshot(options = {}) {
     if (element.labels && element.labels.length > 0) {
       return element.labels[0].textContent?.trim();
     }
-    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') {
+    
+    // Enhanced: Check for sibling/ancestor labels for form controls
+    if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.tagName === 'SELECT') {
+      // Try to find associated label using common patterns
+      const label = findFormLabel(element);
+      if (label) {
+        return label.textContent?.trim();
+      }
       return element.placeholder || element.value || '';
     }
+    
     if (element.tagName.match(/^(BUTTON|A)$/)) {
       return element.textContent?.trim() || '';
     }
     return element.textContent?.trim() || '';
+  }
+  
+  // Helper: Find form label using common patterns
+  function findFormLabel(input) {
+    // Check parent label
+    const parentLabel = input.closest('label');
+    if (parentLabel) return parentLabel;
+    
+    // Check for data-name matching
+    const dataName = input.getAttribute('data-name') || input.name;
+    if (dataName) {
+      // Look in common container patterns
+      const containers = [
+        input.parentElement,
+        input.closest('.form-group'),
+        input.closest('.field')?.parentElement,
+        input.closest('.row')
+      ].filter(Boolean);
+      
+      for (const container of containers) {
+        const label = container.querySelector('label');
+        if (label && !label.querySelector('input, select, textarea')) {
+          return label;
+        }
+      }
+    }
+    
+    // Check previous sibling
+    let prev = input.previousElementSibling;
+    while (prev) {
+      if (prev.tagName === 'LABEL') return prev;
+      const nestedLabel = prev.querySelector('label');
+      if (nestedLabel) return nestedLabel;
+      prev = prev.previousElementSibling;
+    }
+    
+    return null;
   }
   
   // Helper: Create structural hash with caching
@@ -285,26 +341,36 @@ function captureEnhancedMinimalSnapshot(options = {}) {
   
   // NEW: Find the best semantic container for an element
   function findSemanticContainer(element, maxDepth = MAX_DEPTH) {
+    // Use enhanced boundary detection if available
+    if (typeof findSemanticBoundary === 'function') {
+      return findSemanticBoundary(element, maxDepth);
+    }
+    
     let candidates = [];
     let current = element.parentElement;
     let depth = 0;
     
     while (current && current.tagName !== 'BODY' && depth < maxDepth) {
       const score = calculateBoundaryScore(current, element, depth);
-      candidates.push({ element: current, score });
+      candidates.push({ element: current, score, depth });
       current = current.parentElement;
       depth++;
     }
     
     if (candidates.length === 0) return null;
     
-    // Find the candidate with the highest score
-    const bestCandidate = candidates.reduce((best, current) => {
-      return current.score > best.score ? current : best;
-    }, { element: null, score: -Infinity });
+    // Enhanced sorting: prefer closer ancestors for similar scores
+    candidates.sort((a, b) => {
+      if (Math.abs(a.score - b.score) < 5) {
+        return a.depth - b.depth; // Prefer closer when scores are similar
+      }
+      return b.score - a.score;
+    });
     
-    // Confidence threshold
-    return bestCandidate.score > 10 ? bestCandidate.element : null;
+    const best = candidates[0];
+    
+    // Minimum score threshold
+    return best.score > 10 ? best.element : null;
   }
   
   // NEW: Extract key content from a component
@@ -334,6 +400,60 @@ function captureEnhancedMinimalSnapshot(options = {}) {
     return Array.from(content).slice(0, 5); // Limit to 5 content items per component
   }
   
+  // Helper: Detect if an element is an action button (not just navigation)
+  function isActionElement(element) {
+    // Check if it's a button element
+    if (element.tagName === 'BUTTON') return true;
+    
+    // Check for javascript: or # hrefs
+    if (element.href) {
+      const href = element.href.toString();
+      if (href.startsWith('javascript:') || 
+          href === window.location.href + '#' || 
+          href.endsWith('#') ||
+          href.includes('void(0)')) {
+        return true;
+      }
+    }
+    
+    // Check for action-related data attributes
+    const actionDataAttrs = ['action', 'buy', 'cart', 'add', 'purchase', 'checkout', 'order'];
+    for (const attr of Object.keys(element.dataset || {})) {
+      if (actionDataAttrs.some(keyword => attr.toLowerCase().includes(keyword))) {
+        return true;
+      }
+    }
+    
+    // Check for action-related classes
+    const actionClasses = ['btn-buy', 'add-to-cart', 'btn-primary', 'btn-action', 'purchase', 'checkout', 'btnk1', 'btnk'];
+    const classString = (element.className || '').toString().toLowerCase();
+    if (classString && actionClasses.some(cls => classString.includes(cls))) {
+      return true;
+    }
+    
+    // Check for onclick handler
+    if (element.onclick || element.hasAttribute('onclick')) {
+      return true;
+    }
+    
+    // Check text content for action words (multilingual)
+    const text = (element.textContent || '').toLowerCase().trim();
+    const actionWords = [
+      'add to', 'buy', 'purchase', 'checkout', 'order', 'submit',
+      'košík', 'koupit', 'objednat', 'přidat', // Czech
+      'warenkorb', 'kaufen', 'bestellen', // German
+      'panier', 'acheter', 'commander', // French
+      'carrito', 'comprar', 'añadir', // Spanish
+      'carrello', 'acquista', 'aggiungi' // Italian
+    ];
+    
+    if (text.length < 50 && actionWords.some(word => text.includes(word))) {
+      return true;
+    }
+    
+    return false;
+  }
+  
   // Helper: Serialize element
   function serializeElement(element) {
     const tag = element.tagName.toLowerCase();
@@ -349,13 +469,31 @@ function captureEnhancedMinimalSnapshot(options = {}) {
     
     const attrs = [];
     
+    // Check if this is an action element
+    const isAction = isActionElement(element);
+    if (isAction) {
+      attrs.push('action'); // Mark as action element
+    }
+    
     const role = element.getAttribute('role') || 
                  (element.tagName === 'BUTTON' ? 'button' : '') ||
                  (element.tagName === 'A' && element.href ? 'link' : '');
     if (role) attrs.push(`role:${role}`);
     
     if (element.type) attrs.push(`type:${element.type}`);
-    if (element.href) attrs.push('href');
+    
+    // Enhanced href handling to show type
+    if (element.href) {
+      const href = element.href.toString();
+      if (href.startsWith('javascript:')) {
+        attrs.push('href:js');
+      } else if (href === window.location.href + '#' || href.endsWith('#')) {
+        attrs.push('href:hash');
+      } else {
+        attrs.push('href');
+      }
+    }
+    
     if (element.disabled) attrs.push('disabled');
     if (element.checked) attrs.push('checked');
     if (element.required) attrs.push('required');

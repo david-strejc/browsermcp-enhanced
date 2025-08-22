@@ -313,15 +313,23 @@ messageHandlers.set('snapshot.accessibility', async (options = {}) => {
     console.log('[snapshot.accessibility] Enhanced minimal already injected?', checkMinimal.result);
     
     if (!checkMinimal.result) {
-      console.log('[snapshot.accessibility] Injecting minimal-enhanced.js...');
+      console.log('[snapshot.accessibility] Injecting accessibility utilities and minimal-enhanced.js...');
       try {
+        // First inject accessibility utilities
+        await chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          files: ['accessibility-utils.js']
+        });
+        console.log('[snapshot.accessibility] Successfully injected accessibility-utils.js');
+        
+        // Then inject minimal-enhanced which uses the utilities
         await chrome.scripting.executeScript({
           target: { tabId: activeTabId },
           files: ['minimal-enhanced.js']
         });
         console.log('[snapshot.accessibility] Successfully injected minimal-enhanced.js');
       } catch (error) {
-        console.error('[snapshot.accessibility] Failed to inject minimal-enhanced.js:', error);
+        console.error('[snapshot.accessibility] Failed to inject scripts:', error);
         throw error;
       }
     }
