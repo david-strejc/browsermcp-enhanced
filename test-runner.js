@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import net from 'net';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -80,7 +81,6 @@ class TestRunner {
 
   async checkPortAvailable(port) {
     return new Promise((resolve) => {
-      const net = require('net');
       const server = net.createServer();
       
       server.listen(port, () => {
