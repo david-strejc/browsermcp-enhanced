@@ -53,9 +53,9 @@ export const ScreenshotTool = z.object({
 // Snapshot tools
 export const SnapshotTool = z.object({
   name: z.literal("browser_snapshot"),
-  description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. If elements missing, try 'full' level or browser_execute_js for dynamic content."),
+  description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. If elements missing, try browser_execute_js for dynamic content."),
   arguments: z.object({
-    level: z.enum(['minimal', 'full', 'scaffold']).optional().describe("Snapshot detail level. 'minimal' shows only interactive elements (default), 'full' shows entire DOM, 'scaffold' shows ultra-compact view"),
+    level: z.enum(['minimal', 'scaffold']).optional().describe("Snapshot detail level. 'minimal' shows only interactive elements (default), 'scaffold' shows ultra-compact view"),
     viewportOnly: z.boolean().optional().describe("Only include elements in viewport (default: true)"),
     mode: z.enum(['normal', 'scaffold']).optional().describe("Snapshot mode. 'scaffold' for ultra-minimal output")
   }),
