@@ -6,39 +6,24 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser (safe mode by default, unsafe available). CRITICAL: This is a DIAGNOSTIC/INSPECTION tool, NOT for interactions! After using this to find elements or debug, ALWAYS return to high-level tools (browser_click, browser_type, etc.) for actual interactions. Only use for: debugging, state inspection, or when NO high-level tool exists. Use unsafe: true ONLY for code editors (CodeMirror/Monaco/Ace), framework internals, or complex DOM operations."),
+  description: z.literal("Execute JavaScript code in the browser. CRITICAL SYNTAX: Always wrap code in IIFE: (function(){ your code here; return result; })() - this prevents 'Illegal return' errors. DIAGNOSTIC TOOL ONLY - use browser_click/browser_type for interactions. Safe mode: use api.$(). Unsafe mode: direct DOM access."),
   arguments: z.object({
-    code: z.string().describe(`JavaScript code to execute. 
+    code: z.string().describe(`ALWAYS USE IIFE SYNTAX: (function(){ return api.getText('h1'); })()
       
-      SAFE MODE API (default):
-      Available API methods:
-      - api.$('selector') - Query single element
-      - api.$$('selector') - Query all elements as array
-      - api.getText('selector') - Get text content
-      - api.getValue('selector') - Get input value
-      - api.getAttribute('selector', 'attr') - Get attribute value
-      - api.exists('selector') - Check if element exists
-      - api.count('selector') - Count matching elements
-      - api.click('selector') - Click element
-      - api.setValue('selector', 'value') - Set input value
-      - api.hide('selector') - Hide elements
-      - api.show('selector') - Show elements
-      - api.addClass('selector', 'class') - Add class
-      - api.removeClass('selector', 'class') - Remove class
-      - api.extractTable('selector') - Extract table data
-      - api.extractLinks('containerSelector') - Extract links
-      - api.wait(ms) - Wait for milliseconds
-      - api.scrollTo('selector') - Scroll to element
-      - api.getPageInfo() - Get page metadata
-      - api.log(...args) - Console log for debugging
+      SAFE MODE (default) - Use api methods:
+      api.$('sel'), api.$$('sel'), api.getText('sel'), api.getValue('sel'), api.exists('sel')
+      api.click('sel'), api.setValue('sel','val'), api.hide('sel'), api.scrollTo('sel')
       
-      Example: return api.getText('h1');
+      UNSAFE MODE - Direct DOM access:
+      (function(){ return document.querySelector('h1').textContent; })()
+      Required for: CodeMirror/Monaco/Ace editors, React/Vue internals
       
-      UNSAFE MODE (when enabled):
-      Full access to window, document, fetch, chrome APIs, and all browser features.
-      Required for: CodeMirror/Monaco/Ace editor APIs, React/Vue internals, complex DOM manipulation.
-      Example for CodeMirror: { code: 'document.querySelector(".CodeMirror").CodeMirror.setValue("code")', unsafe: true }
-      Use with caution!`),
+      COMMON PATTERNS:
+      - Check exists: (function(){ return api.exists('selector'); })()
+      - Get text: (function(){ return api.getText('h1'); })()
+      - CodeMirror: (function(){ return document.querySelector('.CodeMirror').CodeMirror.getValue(); })()
+      
+      NEVER use bare return statements - always wrap in IIFE!`),
     timeout: z.number().optional().default(5000).describe("Execution timeout in milliseconds"),
     unsafe: z.boolean().optional().describe("Use unsafe mode (requires server/extension configuration)")
   })

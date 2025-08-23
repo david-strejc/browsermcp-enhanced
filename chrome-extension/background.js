@@ -405,11 +405,147 @@ messageHandlers.set('dom.click', async ({ ref, detectPopups = true }) => {
     });
   }
   
-  await chrome.scripting.executeScript({
+  // Inject click detection script
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      files: ['click-detection.js']
+    });
+  } catch (e) {
+    // Ignore if already injected
+  }
+  
+  // Analyze if trusted click is needed
+  const [analysis] = await chrome.scripting.executeScript({
     target: { tabId: activeTabId },
-    func: clickElement,
+    func: (ref) => {
+      if (typeof analyzeClickRequirements === 'function') {
+        return analyzeClickRequirements(ref);
+      }
+      return { requires: false };
+    },
     args: [ref]
   });
+  
+  console.log('[dom.click] Click analysis for', ref, ':', analysis.result);
+  
+  // Use trusted click if needed (for OAuth, popups, etc.)
+  if (analysis.result?.requires) {
+    console.log('[dom.click] Using trusted click. Reasons:', analysis.result.reasons);
+    
+    // Get element coordinates
+    const [coordsResult] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: (ref) => {
+        const validation = window.__elementValidator?.validateElement(ref);
+        if (!validation?.valid) {
+          return { error: validation?.error || 'Element not found' };
+        }
+        
+        const element = validation.element;
+        const rect = element.getBoundingClientRect();
+        
+        // Scroll into view if needed
+        if (rect.top < 0 || rect.bottom > window.innerHeight) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const newRect = element.getBoundingClientRect();
+          return {
+            x: Math.round(newRect.left + newRect.width / 2),
+            y: Math.round(newRect.top + newRect.height / 2),
+            scrolled: true
+          };
+        }
+        
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+          scrolled: false
+        };
+      },
+      args: [ref]
+    });
+    
+    if (coordsResult.result.error) {
+      throw new Error(coordsResult.result.error);
+    }
+    
+    const coords = coordsResult.result;
+    
+    // Wait for scroll if needed
+    if (coords.scrolled) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    // Use Chrome Debugger API for trusted click
+    let wasAttached = false;
+    try {
+      await chrome.debugger.attach({ tabId: activeTabId }, "1.3");
+    } catch (error) {
+      if (error.message.includes('Another debugger')) {
+        wasAttached = true;
+      } else {
+        console.error('[dom.click] Failed to attach debugger:', error);
+        // Fall back to standard click
+        await chrome.scripting.executeScript({
+          target: { tabId: activeTabId },
+          func: clickElement,
+          args: [ref]
+        });
+        return {};
+      }
+    }
+    
+    try {
+      // Input domain doesn't need explicit enabling in Chrome
+      // Directly send mouse events for trusted click
+      await chrome.debugger.sendCommand({ tabId: activeTabId }, "Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: coords.x,
+        y: coords.y
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      await chrome.debugger.sendCommand({ tabId: activeTabId }, "Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: coords.x,
+        y: coords.y,
+        button: "left",
+        buttons: 1,
+        clickCount: 1
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, 30));
+      
+      await chrome.debugger.sendCommand({ tabId: activeTabId }, "Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: coords.x,
+        y: coords.y,
+        button: "left",
+        buttons: 0,
+        clickCount: 1
+      });
+      
+      console.log('[dom.click] Trusted click completed');
+      
+    } finally {
+      if (!wasAttached) {
+        try {
+          await chrome.debugger.detach({ tabId: activeTabId });
+        } catch (e) {
+          console.log('[dom.click] Error detaching debugger:', e);
+        }
+      }
+    }
+  } else {
+    // Use standard click
+    console.log('[dom.click] Using standard click');
+    await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: clickElement,
+      args: [ref]
+    });
+  }
   
   // Wait a bit for any popups to appear
   await new Promise(resolve => setTimeout(resolve, 500));
