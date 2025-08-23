@@ -30,7 +30,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsup src/index.ts --format esm && shx chmod +x dist/*.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "build:tsup": "tsup src/index.ts --format esm && shx chmod +x dist/*.js",
     "prepare": "npm run build",
     "watch": "tsup src/index.ts --format esm --watch ",
     "inspector": "CLIENT_PORT=9001 SERVER_PORT=9002 pnpx @modelcontextprotocol/inspector node dist/index.js",
@@ -52,6 +53,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.0",
+    "esbuild": "^0.25.9",
     "shx": "^0.3.4",
     "tsup": "^8.4.0",
     "typescript": "^5.6.2"
