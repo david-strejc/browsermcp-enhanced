@@ -807,7 +807,7 @@ async function detectPopupsInTab(tabId) {
       // Also inject other required scripts
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
-        files: ['element-tracker.js', 'element-validator.js', 'code-executor-safe.js', 'content.js']
+        files: ['element-tracker.js', 'element-validator.js', 'code-executor-rpc.js', 'content.js']
       });
       console.log('[detectPopupsInTab] Injected all other scripts');
       
@@ -1759,10 +1759,10 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
   });
   
   if (!checkResult.result) {
-    // Inject code executor (use safe version for CSP compliance)
+    // Inject code executor (use RPC-based version with proper safe mode)
     await chrome.scripting.executeScript({
       target: { tabId: activeTabId },
-      files: ['code-executor-safe.js']
+      files: ['code-executor-rpc.js']
     });
     
     // Wait a bit for initialization

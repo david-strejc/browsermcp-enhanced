@@ -6,24 +6,31 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser. CRITICAL SYNTAX: Always wrap code in IIFE: (function(){ your code here; return result; })() - this prevents 'Illegal return' errors. DIAGNOSTIC TOOL ONLY - use browser_click/browser_type for interactions. Safe mode: use api.$(). Unsafe mode: direct DOM access."),
+  description: z.literal("Execute JavaScript code in the browser. ALWAYS wrap code in IIFE: (function(){ your code here; return result; })() - this prevents execution errors.\n\nSAFE MODE (default): Use async api methods for controlled DOM access:\n- await api.getText('h1') - Get text content\n- await api.exists('button') - Check element exists\n- await api.click('#submit') - Click elements\n- await api.setValue('input', 'text') - Set values\n- await api.getPageInfo() - Get page info\nAll api methods are async - use await inside IIFE!\n\nUNSAFE MODE (set unsafe: true): For direct browser access when you need:\n- document/window objects\n- React/Vue internals (.CodeMirror, .__vue__)\n- Browser APIs (fetch, localStorage)\n- Synchronous DOM manipulation\n\nExample safe: (async function(){ return await api.getText('h1'); })()\nExample unsafe: (function(){ return document.title; })())"),
   arguments: z.object({
-    code: z.string().describe(`ALWAYS USE IIFE SYNTAX: (function(){ return api.getText('h1'); })()
-      
-      SAFE MODE (default) - Use api methods:
-      api.$('sel'), api.$$('sel'), api.getText('sel'), api.getValue('sel'), api.exists('sel')
-      api.click('sel'), api.setValue('sel','val'), api.hide('sel'), api.scrollTo('sel')
-      
-      UNSAFE MODE - Direct DOM access:
-      (function(){ return document.querySelector('h1').textContent; })()
-      Required for: CodeMirror/Monaco/Ace editors, React/Vue internals
-      
-      COMMON PATTERNS:
-      - Check exists: (function(){ return api.exists('selector'); })()
-      - Get text: (function(){ return api.getText('h1'); })()
-      - CodeMirror: (function(){ return document.querySelector('.CodeMirror').CodeMirror.getValue(); })()
-      
-      NEVER use bare return statements - always wrap in IIFE!`),
+    code: z.string().describe(`JavaScript code to execute. MUST be wrapped in IIFE!
+
+SAFE MODE (default) - Use async api:
+(async function(){ 
+  return await api.getText('h1');
+})()
+
+(async function(){
+  const text = await api.getText('.title');
+  const exists = await api.exists('#form');
+  return { text, exists };
+})()
+
+UNSAFE MODE - Direct DOM access:
+(function(){ 
+  return document.querySelector('h1').textContent;
+})()
+
+(function(){ 
+  return window.location.href;
+})()
+
+NEVER use bare return statements - always wrap in IIFE!`),
     timeout: z.number().optional().default(5000).describe("Execution timeout in milliseconds"),
     unsafe: z.boolean().optional().describe("Use unsafe mode (requires server/extension configuration)")
   })
