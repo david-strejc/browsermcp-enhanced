@@ -6,22 +6,18 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser. ALWAYS wrap code in IIFE: (function(){ your code here; return result; })() - this prevents execution errors.\n\nSAFE MODE (default): Use async api methods for controlled DOM access:\n- await api.getText('h1') - Get text content\n- await api.exists('button') - Check element exists\n- await api.click('#submit') - Click elements\n- await api.setValue('input', 'text') - Set values\n- await api.getPageInfo() - Get page info\nAll api methods are async - use await inside IIFE!\n\nUNSAFE MODE (set unsafe: true): For direct browser access when you need:\n- document/window objects\n- React/Vue internals (.CodeMirror, .__vue__)\n- Browser APIs (fetch, localStorage)\n- Synchronous DOM manipulation\n\nExample safe: (async function(){ return await api.getText('h1'); })()\nExample unsafe: (function(){ return document.title; })())"),
+  description: z.literal("Execute JavaScript code in the browser.\n\nSAFE MODE (default): Use async api methods for controlled DOM access:\n- await api.getText('h1') - Get text content\n- await api.exists('button') - Check element exists\n- await api.click('#submit') - Click elements\n- await api.setValue('input', 'text') - Set values\n- await api.getPageInfo() - Get page info\nAll api methods are async - use await!\n\nUNSAFE MODE (set unsafe: true): For direct browser access when you need:\n- document/window objects\n- React/Vue internals (.CodeMirror, .__vue__)\n- Browser APIs (fetch, localStorage)\n- Synchronous DOM manipulation\n\nExample safe: return await api.getText('h1')\nExample unsafe: (function(){ return document.title; })()\nIMPORTANT: IIFE wrapper required ONLY for unsafe mode!"),
   arguments: z.object({
-    code: z.string().describe(`JavaScript code to execute. MUST be wrapped in IIFE!
+    code: z.string().describe(`JavaScript code to execute.
 
-SAFE MODE (default) - Use async api:
-(async function(){ 
-  return await api.getText('h1');
-})()
+SAFE MODE (default) - Use async api WITHOUT wrapper:
+return await api.getText('h1')
 
-(async function(){
-  const text = await api.getText('.title');
-  const exists = await api.exists('#form');
-  return { text, exists };
-})()
+const text = await api.getText('.title');
+const exists = await api.exists('#form');
+return { text, exists }
 
-UNSAFE MODE - Direct DOM access:
+UNSAFE MODE - Direct DOM access REQUIRES IIFE wrapper:
 (function(){ 
   return document.querySelector('h1').textContent;
 })()
@@ -30,7 +26,7 @@ UNSAFE MODE - Direct DOM access:
   return window.location.href;
 })()
 
-NEVER use bare return statements - always wrap in IIFE!`),
+IMPORTANT: IIFE wrapper (function(){...})() required ONLY for unsafe mode!`),
     timeout: z.number().optional().default(5000).describe("Execution timeout in milliseconds"),
     unsafe: z.boolean().optional().describe("Use unsafe mode (requires server/extension configuration)")
   })
