@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { program } from "commander";
