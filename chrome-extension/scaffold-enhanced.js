@@ -1,11 +1,111 @@
 // Enhanced scaffold mode with intelligent clustering and deduplication
 // Based on o3 model recommendations
+// v1.1.0 - Added autofill detection
+
+// Add CSS animation for autofill detection
+(function() {
+  if (!document.getElementById('bmcp-autofill-styles')) {
+    const style = document.createElement('style');
+    style.id = 'bmcp-autofill-styles';
+    style.textContent = `
+      @keyframes bmcp-autofill { from {} to {} }
+      input:-webkit-autofill,
+      textarea:-webkit-autofill,
+      select:-webkit-autofill {
+        animation: bmcp-autofill 0s 1;
+      }
+    `;
+    document.head.appendChild(style);
+    
+    // Listen for autofill animation
+    document.addEventListener('animationstart', e => {
+      if (e.animationName === 'bmcp-autofill') {
+        e.target.dataset.bmcpAutofilled = 'true';
+      }
+    });
+  }
+})();
 
 function captureEnhancedScaffoldSnapshot() {
   const startTime = performance.now();
   const MAX_EXECUTION_TIME = 50; // ms budget
   const DEDUPE_THRESHOLD = 5; // Min elements to trigger deduplication
   const MAX_ELEMENTS = 100; // Safety limit for output
+  
+  // Helper: Detect if element is autofilled and its type
+  function getAutofillInfo(el) {
+    if (!/^(INPUT|TEXTAREA|SELECT)$/i.test(el.tagName)) return null;
+    
+    let isAutofilled = false;
+    
+    // Standard spec + webkit pseudo-classes
+    try {
+      if (el.matches(':autofill') || el.matches(':-webkit-autofill')) isAutofilled = true;
+    } catch(e) {
+      // Pseudo-class might not be supported
+    }
+    
+    // Check dataset set by animation listener
+    if (el.dataset.bmcpAutofilled === 'true') isAutofilled = true;
+    
+    // Fallback heuristic: typical autofill background color
+    const cs = window.getComputedStyle(el);
+    if (el.value && cs.backgroundColor === 'rgb(232, 240, 254)') isAutofilled = true;
+    
+    if (!isAutofilled) return null;
+    
+    // Detect what type of field was autofilled based on autocomplete attribute or heuristics
+    const autocomplete = el.getAttribute('autocomplete') || '';
+    const name = (el.name || '').toLowerCase();
+    const id = (el.id || '').toLowerCase();
+    const placeholder = (el.placeholder || '').toLowerCase();
+    const type = el.type || '';
+    
+    // Categorize autofill type
+    let autofillType = 'unknown';
+    
+    // Check autocomplete attribute first (most reliable)
+    if (autocomplete) {
+      if (autocomplete.includes('email')) autofillType = 'email';
+      else if (autocomplete.includes('tel')) autofillType = 'phone';
+      else if (autocomplete.includes('cc-')) autofillType = 'credit-card';
+      else if (autocomplete.includes('address') || autocomplete.includes('postal')) autofillType = 'address';
+      else if (autocomplete.includes('name')) autofillType = 'name';
+      else if (autocomplete.includes('username')) autofillType = 'username';
+      else if (autocomplete.includes('password')) autofillType = 'password';
+      else if (autocomplete.includes('bday')) autofillType = 'birthday';
+      else if (autocomplete.includes('url')) autofillType = 'website';
+    }
+    // Fallback to field attributes
+    else if (type === 'password') autofillType = 'password';
+    else if (type === 'email') autofillType = 'email';
+    else if (type === 'tel') autofillType = 'phone';
+    else if (type === 'url') autofillType = 'website';
+    // Check name/id/placeholder for hints
+    else if (name.includes('email') || id.includes('email')) autofillType = 'email';
+    else if (name.includes('phone') || name.includes('tel') || id.includes('phone')) autofillType = 'phone';
+    else if (name.includes('address') || name.includes('street') || name.includes('city')) autofillType = 'address';
+    else if (name.includes('zip') || name.includes('postal')) autofillType = 'postal-code';
+    else if (name.includes('card') || name.includes('cc')) autofillType = 'credit-card';
+    else if (name.includes('cvv') || name.includes('cvc') || name.includes('security')) autofillType = 'card-security';
+    else if (name.includes('user') || name.includes('login') || name.includes('account')) autofillType = 'username';
+    else if (name.includes('name') && !name.includes('user')) autofillType = 'name';
+    else if (name.includes('company') || name.includes('organization')) autofillType = 'organization';
+    else if (name.includes('country')) autofillType = 'country';
+    else if (name.includes('state') || name.includes('province')) autofillType = 'state';
+    
+    return {
+      isAutofilled: true,
+      type: autofillType,
+      autocompleteAttr: autocomplete
+    };
+  }
+  
+  // Helper: Detect if element is autofilled (simplified wrapper)
+  function isAutofilled(el) {
+    const info = getAutofillInfo(el);
+    return info ? info.isAutofilled : false;
+  }
   
   // Helper: Check if element is visible
   function isVisible(element) {
@@ -61,6 +161,8 @@ function captureEnhancedScaffoldSnapshot() {
       depth++;
     }
     
+    const autofillInfo = getAutofillInfo(element);
+    
     return {
       text: text,
       normalizedText: normalizedText,
@@ -71,7 +173,9 @@ function captureEnhancedScaffoldSnapshot() {
       classList: Array.from(element.classList).sort().join(' '),
       isInForm: !!element.closest('form'),
       formId: element.closest('form')?.id || null,
-      navId: element.closest('nav, [role="navigation"]')?.id || null
+      navId: element.closest('nav, [role="navigation"]')?.id || null,
+      isAutofilled: autofillInfo ? autofillInfo.isAutofilled : false,
+      autofillType: autofillInfo ? autofillInfo.type : null
     };
   }
   
@@ -258,6 +362,14 @@ function captureEnhancedScaffoldSnapshot() {
         if (item.fingerprint.isInForm) {
           output += ' [form]';
         }
+        if (item.fingerprint.isAutofilled) {
+          const afType = item.fingerprint.autofillType;
+          if (afType && afType !== 'unknown') {
+            output += ` [AUTOFILLED:${afType}]`;
+          } else {
+            output += ' [AUTOFILLED]';
+          }
+        }
         output += '\n';
       });
     }
@@ -266,6 +378,17 @@ function captureEnhancedScaffoldSnapshot() {
   
   // Add key elements section for quick access
   const keyElements = [];
+  const autofilledFields = [];
+  
+  // Collect autofilled fields with their types
+  allElements.forEach(item => {
+    if (item.fingerprint.isAutofilled) {
+      autofilledFields.push({
+        type: item.fingerprint.autofillType || 'unknown',
+        ref: item.ref
+      });
+    }
+  });
   
   // Search boxes
   const searchInputs = document.querySelectorAll('input[type="search"], input[placeholder*="search" i], input[aria-label*="search" i]');
@@ -301,6 +424,49 @@ function captureEnhancedScaffoldSnapshot() {
     keyElements.slice(0, 10).forEach(item => {
       output += `${item.type} [ref=${item.ref}] "${item.text}"\n`;
     });
+  }
+  
+  // Add autofill summary if any fields are autofilled
+  if (autofilledFields.length > 0) {
+    output += `\n📝 Autofilled Fields Detected:\n`;
+    
+    // Group by type
+    const autofillByType = {};
+    autofilledFields.forEach(field => {
+      if (!autofillByType[field.type]) autofillByType[field.type] = 0;
+      autofillByType[field.type]++;
+    });
+    
+    // Show summary
+    Object.entries(autofillByType).forEach(([type, count]) => {
+      const icon = {
+        'username': '👤',
+        'password': '🔐',
+        'email': '📧',
+        'phone': '📱',
+        'address': '🏠',
+        'credit-card': '💳',
+        'name': '📝',
+        'postal-code': '📮',
+        'organization': '🏢',
+        'unknown': '❓'
+      }[type] || '📋';
+      
+      output += `  ${icon} ${count} ${type} field(s)\n`;
+    });
+    
+    output += `\n💡 Tip: Fields marked [AUTOFILLED] contain saved data. `;
+    
+    // Provide context-specific advice
+    if (autofillByType['username'] || autofillByType['password']) {
+      output += `You can click Login/Submit directly without typing credentials.\n`;
+    } else if (autofillByType['credit-card']) {
+      output += `Credit card info is pre-filled. Review and submit payment.\n`;
+    } else if (autofillByType['address']) {
+      output += `Address information is pre-filled. Review and continue.\n`;
+    } else {
+      output += `Review the pre-filled data and proceed.\n`;
+    }
   }
   
   // Performance metrics (in dev mode)

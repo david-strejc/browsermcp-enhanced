@@ -692,9 +692,14 @@ messageHandlers.set('console.get', async () => {
 });
 
 messageHandlers.set('screenshot.capture', async () => {
-  const dataUrl = await chrome.tabs.captureVisibleTab();
+  // Capture as JPEG for smaller file size (better compression)
+  // Quality 90 provides good balance between size and quality
+  const dataUrl = await chrome.tabs.captureVisibleTab(null, { 
+    format: 'jpeg',
+    quality: 90 
+  });
   const base64 = dataUrl.split(',')[1];
-  return { data: base64 };
+  return { data: base64, mimeType: 'image/jpeg' };
 });
 
 // Add handler for browser_screenshot (MCP server compatibility)
@@ -709,11 +714,18 @@ messageHandlers.set('browser_screenshot', async () => {
     }
     
     console.log('Taking screenshot of tab:', activeTabId);
-    const dataUrl = await chrome.tabs.captureVisibleTab();
+    // Capture as JPEG for smaller file size (better compression)
+    // Quality 90 provides good balance between size and quality
+    const dataUrl = await chrome.tabs.captureVisibleTab(null, { 
+      format: 'jpeg',
+      quality: 90 
+    });
     console.log('Data URL length:', dataUrl ? dataUrl.length : 0);
     
-    const base64 = dataUrl.split(',')[1];
-    console.log('Base64 length:', base64 ? base64.length : 0);
+    // Extract base64 and MIME type from data URL
+    const [header, base64] = dataUrl.split(',');
+    const mimeType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
+    console.log('Base64 length:', base64 ? base64.length : 0, 'MIME type:', mimeType);
     
     if (!base64) {
       console.error('Screenshot captured but no base64 data found');
@@ -724,7 +736,7 @@ messageHandlers.set('browser_screenshot', async () => {
     // Log first 100 chars to verify data exists
     console.log('Screenshot base64 preview:', base64.substring(0, 100));
     
-    return { data: base64 };
+    return { data: base64, mimeType: mimeType };
   } catch (error) {
     console.error('Screenshot failed:', error);
     return { error: `Screenshot failed: ${error.message}` };
