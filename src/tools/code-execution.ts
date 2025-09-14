@@ -6,7 +6,7 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript code in the browser.\n\nSAFE MODE (default): Use async api methods for controlled DOM access:\n- await api.getText('h1') - Get text content\n- await api.exists('button') - Check element exists\n- await api.click('#submit') - Click elements\n- await api.setValue('input', 'text') - Set values\n- await api.getPageInfo() - Get page info\nAll api methods are async - use await!\n\nUNSAFE MODE (set unsafe: true): For direct browser access when you need:\n- document/window objects\n- React/Vue internals (.CodeMirror, .__vue__)\n- Browser APIs (fetch, localStorage)\n- Synchronous DOM manipulation\n\nExample safe: return await api.getText('h1')\nExample unsafe: (function(){ return document.title; })()\nIMPORTANT: IIFE wrapper required ONLY for unsafe mode!"),
+  description: z.literal("Execute JavaScript in browser. CRITICAL: In UNSAFE mode (unsafe:true) you MUST wrap code in IIFE: (function(){...})() for document/window/fetch access. SAFE mode (default): Use await api.* methods, NO wrapper needed. See code parameter for examples."),
   arguments: z.object({
     code: z.string().describe(`JavaScript code to execute.
 
