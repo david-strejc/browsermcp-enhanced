@@ -149,10 +149,14 @@ class DebuggerStateManager {
             });
           });
 
+          // CRITICAL FIX: Set state to ATTACHED immediately after chrome.debugger.attach succeeds
+          // This allows sendCommand() to work in the domain enabling phase below
+          this.setTabState(tabId, this.STATES.ATTACHED);
+
           // Initialize data storage
           this.initTabData(tabId);
 
-          // Enable domains
+          // Enable domains - now sendCommand() will work because state is ATTACHED
           for (const domain of domains) {
             if (domain === "console" || domain === "runtime") {
               await this.sendCommand(tabId, "Runtime.enable", {});
@@ -167,8 +171,6 @@ class DebuggerStateManager {
 
           // Always enable Log domain for errors
           await this.sendCommand(tabId, "Log.enable", {});
-
-          this.setTabState(tabId, this.STATES.ATTACHED);
           console.log(`[DebuggerState] Successfully attached to tab ${tabId}`);
           return { success: true };
 

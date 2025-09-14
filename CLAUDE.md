@@ -1,13 +1,15 @@
 # Browser MCP - Enhanced Browser Automation
 
 ## 🚀 Quick Deploy
-**One-command deployment:** `./scripts/deploy` or `./scripts/deploy-enhanced.sh`
+**ALWAYS USE THIS FOR DEPLOYMENT:** `./scripts/deploy`
+- **IMPORTANT:** Always use `./scripts/deploy` for ANY browser MCP deployment
 - Smart version checking (compares source vs deployed)
-- Automatic version bumping with validation
+- Automatic version bumping with validation (patch/minor/major)
 - Creates timestamped backups (keeps last 5)
 - Rollback capability: `./scripts/deploy --rollback`
 - Configuration management: `./scripts/deploy --config`
 - Robust error handling and status checks
+- **DO NOT MANUALLY COPY FILES** - Let the script handle everything
 
 ## Components
 
@@ -46,7 +48,7 @@
 
 ## Development Workflow
 1. Make changes to code
-2. Run `./scripts/deploy` (enhanced) or `./scripts/deploy.sh` (original)
+2. **ALWAYS RUN:** `./scripts/deploy` (NEVER use deploy.sh or manual copy)
 3. Script shows version comparison (source vs deployed)
 4. Select version bump type (patch/minor/major/custom)
 5. Script handles everything with robust checks
