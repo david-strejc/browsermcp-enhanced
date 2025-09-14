@@ -153,26 +153,6 @@ export interface SocketMessageMap {
     response: { requests: NetworkRequest[] };
   };
   
-  // Scaffold and query operations
-  'dom.expand': {
-    request: { 
-      ref: string;
-      maxTokens?: number;
-      depth?: number;
-      filter?: 'all' | 'interactive' | 'text';
-    };
-    response: { expansion: string };
-  };
-  'dom.query': {
-    request: {
-      selector?: string;
-      containing?: string;
-      nearRef?: string;
-      limit?: number;
-    };
-    response: { results: string };
-  };
-  
   // Debugger operations
   'debugger.attach': {
     request: { domains?: string[] };

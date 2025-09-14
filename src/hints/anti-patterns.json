@@ -3,9 +3,9 @@
     {
       "pattern": "browser_execute_js.*\\.click\\(\\)",
       "severity": "high",
-      "message": "STOP! You're using JavaScript to click. Use browser_find_element first to get a ref, then use browser_click with that ref.",
-      "suggestion": "Replace JS click with: 1) browser_find_element to get ref, 2) browser_click with the ref",
-      "example": "Instead of browser_execute_js({code: 'document.querySelector(\"button\").click()'}), use browser_find_element then browser_click"
+      "message": "STOP! You're using JavaScript to click. Use browser_snapshot to get refs, then use browser_click with the ref.",
+      "suggestion": "Replace JS click with: 1) browser_snapshot to get refs, 2) browser_click with the ref",
+      "example": "Instead of browser_execute_js({code: 'document.querySelector(\"button\").click()'}), use browser_snapshot then browser_click"
     },
     {
       "pattern": "browser_execute_js.*\\.value\\s*=",
@@ -26,7 +26,7 @@
     {
       "trigger": "add.*cart|buy|purchase|checkout",
       "action": "verify_product",
-      "message": "VERIFY FIRST! Before adding to cart, use browser_verify_product to ensure this is the correct item type",
+      "message": "VERIFY FIRST! Before adding to cart, carefully check the product title and description to ensure this is the correct item type",
       "critical": true
     },
     {
@@ -41,8 +41,8 @@
     {
       "name": "safe_interaction",
       "steps": [
-        "If element not visible in snapshot, use browser_find_element",
-        "Get the ref from browser_find_element",
+        "If element not visible in snapshot, use browser_snapshot to get updated refs",
+        "Get the ref from browser_snapshot",
         "Use high-level tool (browser_click, browser_type) with the ref",
         "Only use browser_execute_js for inspection/debugging"
       ]
@@ -53,7 +53,7 @@
         "Search for product",
         "Sort/filter results",
         "For each candidate product:",
-        "  - Use browser_verify_product to check it matches intent",
+        "  - Carefully verify product details match intent",
         "  - Only proceed if confidence > 70%",
         "Add verified product to cart",
         "Proceed to checkout"
@@ -62,7 +62,7 @@
   ],
   
   "cognitive_reminders": [
-    "TOOL HIERARCHY: snapshot → find_element → click/type (NOT execute_js for interactions)",
+    "TOOL HIERARCHY: snapshot → click/type (NOT execute_js for interactions)",
     "VERIFY ASSUMPTIONS: Search results may not match intent (batteries vs battery-powered devices)",
     "RETURN TO HIGH-LEVEL: After using JS for inspection, always return to proper browser tools",
     "CHECK TWICE: Product title AND category before adding to cart"

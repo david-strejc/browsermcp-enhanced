@@ -615,30 +615,22 @@ messageHandlers.set('browser_press_key', async ({ key }) => {
   if (key === 'F12' || key === 'f12') {
     // Use Chrome Debugger API to simulate DevTools opening
     // Note: We can't actually open DevTools, but we can attach debugger which shows a bar
-    if (!debuggerHandler.attached) {
+    if (!debuggerStateManager.isAttached(activeTabId)) {
       try {
-        await chrome.debugger.attach({ tabId: activeTabId }, "1.3");
-        debuggerHandler.attached = true;
-        debuggerHandler.tabId = activeTabId;
-        // Enable necessary domains for full debugging
-        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Runtime.enable", {});
-        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Console.enable", {});
-        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Log.enable", {});
+        await debuggerStateManager.ensureAttached(activeTabId, ["runtime", "console"]);
         return { message: "Debugger attached (DevTools simulation). Chrome shows debugging bar." };
       } catch (error) {
         return { error: `Could not attach debugger: ${error.message}` };
       }
     } else {
       // If already attached, detach
-      await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
-      debuggerHandler.attached = false;
-      debuggerHandler.tabId = null;
+      await debuggerStateManager.ensureDetached(activeTabId);
       return { message: "Debugger detached" };
     }
   }
-  
+
   // Try to use debugger Input API for more powerful key simulation if debugger is attached
-  if (debuggerHandler.attached && debuggerHandler.tabId === activeTabId) {
+  if (debuggerStateManager.isAttached(activeTabId)) {
     try {
       // Parse key for debugger API
       let keyCode = key;
@@ -982,211 +974,44 @@ messageHandlers.set('browser_wait', async ({ time }) => {
   return {};
 });
 
-// Debugger handler instance - track attached tabs to prevent concurrency issues
-const debuggerHandler = {
-  attached: false,
-  tabId: null,
-  attachedTabs: new Set(), // Track which tabs have debugger attached
-  data: {
-    console: [],
-    network: [],
-    errors: [],
-    performance: {}
-  },
-  maxEntries: 1000
-};
+// Import debugger state manager
+importScripts('debugger-state-manager.js');
 
-// Debugger message handlers
+// Use the global debugger state manager instance
+const debuggerStateManager = globalThis.__debuggerStateManager;
+
+// Debugger message handlers using the new state manager
 messageHandlers.set('debugger.attach', async ({ domains = ["console", "network", "performance", "runtime"] }) => {
-  // Check if already attached to this tab
-  if (debuggerHandler.attachedTabs.has(activeTabId)) {
-    return { success: true, message: 'Debugger already attached to this tab' };
+  try {
+    const result = await debuggerStateManager.ensureAttached(activeTabId, domains);
+    return result;
+  } catch (error) {
+    console.error('[debugger.attach] Failed:', error);
+    return { error: error.message };
   }
-  
-  // Clean up any previous attachment
-  if (debuggerHandler.attached && debuggerHandler.tabId !== activeTabId) {
-    try {
-      await chrome.debugger.detach({ tabId: debuggerHandler.tabId });
-      debuggerHandler.attachedTabs.delete(debuggerHandler.tabId);
-    } catch (e) {
-      console.warn('Failed to detach previous debugger:', e);
-    }
-  }
-
-  debuggerHandler.tabId = activeTabId;
-  
-  return new Promise((resolve) => {
-    chrome.debugger.attach({ tabId: activeTabId }, "1.3", async () => {
-      if (chrome.runtime.lastError) {
-        resolve({ error: chrome.runtime.lastError.message });
-        return;
-      }
-      
-      debuggerHandler.attached = true;
-      debuggerHandler.attachedTabs.add(activeTabId);
-      
-      // Enable requested domains
-      try {
-        if (domains.includes("console") || domains.includes("runtime")) {
-          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Runtime.enable", {});
-        }
-        if (domains.includes("network")) {
-          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Network.enable", {});
-        }
-        if (domains.includes("performance")) {
-          await chrome.debugger.sendCommand({ tabId: activeTabId }, "Performance.enable", {});
-        }
-        
-        // Always enable Log domain for errors
-        await chrome.debugger.sendCommand({ tabId: activeTabId }, "Log.enable", {});
-        
-        resolve({ success: true });
-      } catch (error) {
-        debuggerHandler.attachedTabs.delete(activeTabId);
-        resolve({ error: error.message });
-      }
-    });
-  });
 });
 
 messageHandlers.set('debugger.detach', async () => {
-  if (!debuggerHandler.attached || !debuggerHandler.tabId) {
-    return { success: false, error: "Debugger not attached" };
+  try {
+    const result = await debuggerStateManager.ensureDetached(activeTabId);
+    return result;
+  } catch (error) {
+    console.error('[debugger.detach] Failed:', error);
+    return { error: error.message };
   }
-
-  const tabToDetach = debuggerHandler.tabId;
-  
-  return new Promise((resolve) => {
-    chrome.debugger.detach({ tabId: tabToDetach }, () => {
-      debuggerHandler.attached = false;
-      debuggerHandler.attachedTabs.delete(tabToDetach);
-      debuggerHandler.tabId = null;
-      
-      // Keep only last 100 entries to prevent memory leaks
-      debuggerHandler.data.console = debuggerHandler.data.console.slice(-100);
-      debuggerHandler.data.network = debuggerHandler.data.network.slice(-100);
-      debuggerHandler.data.errors = debuggerHandler.data.errors.slice(-100);
-      
-      resolve({ success: true });
-    });
-  });
 });
 
 messageHandlers.set('debugger.getData', async ({ type, limit = 50, filter }) => {
-  let data = [];
-
-  switch (type) {
-    case "console":
-      data = debuggerHandler.data.console;
-      break;
-    case "network":
-      data = debuggerHandler.data.network;
-      break;
-    case "errors":
-      data = debuggerHandler.data.errors;
-      break;
-    case "performance":
-      // Get fresh performance metrics
-      if (debuggerHandler.attached) {
-        try {
-          const metrics = await chrome.debugger.sendCommand(
-            { tabId: debuggerHandler.tabId }, 
-            "Performance.getMetrics", 
-            {}
-          );
-          const result = {};
-          metrics.metrics.forEach(metric => {
-            result[metric.name] = metric.value;
-          });
-          debuggerHandler.data.performance = result;
-        } catch (error) {
-          console.error("Failed to get performance metrics:", error);
-        }
-      }
-      return { data: debuggerHandler.data.performance };
-  }
-
-  // Apply filter if provided
-  if (filter && data.length > 0) {
-    data = data.filter(item => 
-      JSON.stringify(item).toLowerCase().includes(filter.toLowerCase())
-    );
-  }
-
-  // Apply limit
-  return { data: data.slice(-limit) };
-});
-
-// Debugger event listener
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (source.tabId !== debuggerHandler.tabId) return;
-
-  switch (method) {
-    case "Runtime.consoleAPICalled":
-      debuggerHandler.data.console.push({
-        type: params.type,
-        timestamp: new Date().toISOString(),
-        args: params.args.map(arg => {
-          if (arg.type === "string") return arg.value;
-          if (arg.type === "number") return arg.value;
-          if (arg.type === "boolean") return arg.value;
-          if (arg.type === "undefined") return undefined;
-          if (arg.type === "object" && arg.subtype === "null") return null;
-          return arg.description || arg.type;
-        }),
-        stackTrace: params.stackTrace ? params.stackTrace.callFrames
-          .map(f => `${f.functionName || '<anonymous>'} (${f.url}:${f.lineNumber}:${f.columnNumber})`)
-          .join('\n    ') : null
-      });
-      if (debuggerHandler.data.console.length > debuggerHandler.maxEntries) {
-        debuggerHandler.data.console = debuggerHandler.data.console.slice(-debuggerHandler.maxEntries);
-      }
-      break;
-    
-    case "Network.requestWillBeSent":
-      debuggerHandler.data.network.push({
-        id: params.requestId,
-        url: params.request.url,
-        method: params.request.method,
-        type: params.type,
-        timestamp: params.timestamp,
-        initiator: params.initiator,
-        headers: params.request.headers
-      });
-      if (debuggerHandler.data.network.length > debuggerHandler.maxEntries) {
-        debuggerHandler.data.network = debuggerHandler.data.network.slice(-debuggerHandler.maxEntries);
-      }
-      break;
-    
-    case "Network.responseReceived":
-      const request = debuggerHandler.data.network.find(r => r.id === params.requestId);
-      if (request) {
-        request.status = params.response.status;
-        request.statusText = params.response.statusText;
-        request.responseHeaders = params.response.headers;
-        request.size = params.response.encodedDataLength;
-        request.time = (params.timestamp - request.timestamp) * 1000; // Convert to ms
-      }
-      break;
-    
-    case "Runtime.exceptionThrown":
-      debuggerHandler.data.errors.push({
-        timestamp: new Date().toISOString(),
-        message: params.exceptionDetails.text,
-        url: params.exceptionDetails.url,
-        line: params.exceptionDetails.lineNumber,
-        column: params.exceptionDetails.columnNumber,
-        stack: params.exceptionDetails.stackTrace ? 
-          params.exceptionDetails.stackTrace.callFrames
-            .map(f => `${f.functionName || '<anonymous>'} (${f.url}:${f.lineNumber}:${f.columnNumber})`)
-            .join('\n    ') : null
-      });
-      if (debuggerHandler.data.errors.length > debuggerHandler.maxEntries) {
-        debuggerHandler.data.errors = debuggerHandler.data.errors.slice(-debuggerHandler.maxEntries);
-      }
-      break;
+  try {
+    const result = await debuggerStateManager.getData(activeTabId, type, limit, filter);
+    return result;
+  } catch (error) {
+    console.error('[debugger.getData] Failed:', error);
+    return { error: error.message };
   }
 });
+
+// Note: Debugger event listening is now handled by the debuggerStateManager
 
 // Token estimation helper
 function estimateTokens(text) {
@@ -1801,36 +1626,48 @@ messageHandlers.set('js.execute', async ({ code, timeout = 5000, unsafe = null }
     const useUnsafeMode = unsafe !== null ? unsafe : extensionConfig.unsafeMode;
     
     if (useUnsafeMode) {
-      console.warn('⚠️ Executing code in UNSAFE mode - using chrome.scripting API');
-      
-      // For unsafe mode, use chrome.debugger to execute code (bypasses all CSP)
+      console.warn('⚠️ Executing code in UNSAFE mode - using chrome.debugger API');
+
+      // Check if debugger is already attached via DebuggerStateManager
+      const debuggerAlreadyAttached = await globalThis.__debuggerStateManager?.isAttached(activeTabId);
+      let shouldDetach = false;
+
       try {
-        // Attach debugger
-        await chrome.debugger.attach({ tabId: activeTabId }, "1.0");
-        
+        // Only attach if not already attached
+        if (!debuggerAlreadyAttached) {
+          console.log('[execute_js] Attaching debugger for unsafe mode execution');
+          await chrome.debugger.attach({ tabId: activeTabId }, "1.0");
+          shouldDetach = true;
+        } else {
+          console.log('[execute_js] Reusing existing debugger connection from DebuggerStateManager');
+        }
+
         try {
           // Execute code using Runtime.evaluate (bypasses CSP completely)
           const result = await chrome.debugger.sendCommand(
-            { tabId: activeTabId }, 
-            "Runtime.evaluate", 
+            { tabId: activeTabId },
+            "Runtime.evaluate",
             {
               expression: code,
               returnByValue: true,
               awaitPromise: true
             }
           );
-          
+
           if (result.exceptionDetails) {
             throw new Error(`Runtime error: ${result.exceptionDetails.exception.description}`);
           }
-          
+
           const execResult = { result: result.result.value };
           clearTimeout(timeoutId);
           resolve(execResult);
           return;
         } finally {
-          // Always detach debugger
-          await chrome.debugger.detach({ tabId: activeTabId });
+          // Only detach if we attached it (not if DebuggerStateManager owns it)
+          if (shouldDetach) {
+            console.log('[execute_js] Detaching debugger after unsafe mode execution');
+            await chrome.debugger.detach({ tabId: activeTabId });
+          }
         }
       } catch (error) {
         clearTimeout(timeoutId);

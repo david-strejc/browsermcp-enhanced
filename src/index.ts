@@ -12,10 +12,7 @@ import * as custom from "./tools/custom";
 import * as snapshot from "./tools/snapshot";
 import * as tabs from "./tools/tabs";
 import { debuggerTools } from "./tools/debugger";
-import { expandRegion, queryElements } from "./tools/scaffold";
 import { executeJS, commonOperations } from "./tools/code-execution";
-import { findElement } from "./tools/element-finder";
-import { verifyProduct } from "./tools/product-verifier";
 import { fileUploadTools } from "./tools/file-upload";
 // import { browserMultitool } from "./tools/multitool"; // Old version disabled
 import { browser_multitool_v3 } from "./tools/multitool-v3";
@@ -44,10 +41,7 @@ const tabTools: Tool[] = [
   tabs.browser_tab_close,
 ];
 
-const scaffoldTools: Tool[] = [
-  expandRegion,
-  queryElements,
-];
+const scaffoldTools: Tool[] = [];
 
 const codeExecutionTools: Tool[] = [
   executeJS,
@@ -59,10 +53,7 @@ const hintTools: Tool[] = [
   browser_get_hints,
 ];
 
-const helperTools: Tool[] = [
-  findElement,
-  verifyProduct,
-];
+const helperTools: Tool[] = [];
 
 const snapshotTools: Tool[] = [
   browser_multitool_v3,  // New recipe generator multitool

@@ -62,8 +62,6 @@ class MCPIntegrationTest {
     const tools = [
       'browser_navigate',
       'browser_snapshot',
-      'browser_expand_region',
-      'browser_query_elements',
       'browser_click',
       'browser_type'
     ];
@@ -83,8 +81,6 @@ class MCPIntegrationTest {
     const workflow = [
       { step: 'Navigate to seznam.cz', action: 'browser_navigate' },
       { step: 'Capture scaffold snapshot', action: 'browser_snapshot' },
-      { step: 'Query search input', action: 'browser_query_elements' },
-      { step: 'Expand search area', action: 'browser_expand_region' },
       { step: 'Type in search', action: 'browser_type' },
       { step: 'Click search button', action: 'browser_click' }
     ];

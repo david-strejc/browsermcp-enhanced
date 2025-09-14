@@ -200,7 +200,6 @@ BROWSER_MCP_PORT=8765
 - `browser_multitool` - Pattern-based automation
 - `browser_debugger_*` - Debugging utilities
 - `browser_tab_*` - Tab management
-- `browser_find_element` - Advanced element search
 
 ## 🧪 Testing
 

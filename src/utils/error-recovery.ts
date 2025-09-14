@@ -127,8 +127,8 @@ export class ErrorRecovery {
             },
             {
               action: "Find Element",
-              description: "Use query_elements to find the element by text or selector",
-              code: "browser_query_elements({ containing: 'button text' })"
+              description: "Use browser_execute_js to find the element by text or selector",
+              code: "browser_execute_js({ code: \"return await api.exists('button')\" })"
             }
           );
         } else if (error.message.includes('element.*not.*found')) {
