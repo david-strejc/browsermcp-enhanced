@@ -675,12 +675,105 @@ messageHandlers.set('browser_press_key', async ({ key }) => {
   return {};
 });
 
-messageHandlers.set('console.get', async () => {
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId: activeTabId },
-    func: getConsoleLogs
-  });
-  return { logs: result.result || [] };
+messageHandlers.set('console.get', async ({ filter = null, type = null, limit = 1000 } = {}) => {
+  // Ensure we have an active tab
+  if (!activeTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    activeTabId = tab?.id;
+  }
+
+  if (!activeTabId) {
+    return { logs: [], error: "No active tab" };
+  }
+
+  // Bootstrap debugger if not already attached (this enables early capture)
+  if (globalThis.__debuggerStateManager) {
+    try {
+      await globalThis.__debuggerStateManager.bootstrapDebugger(activeTabId);
+
+      // Get console data from debugger
+      const data = globalThis.__debuggerStateManager.getTabData(activeTabId);
+
+      // Format console logs for response
+      const logs = data.console.map(log => ({
+        type: log.type,
+        timestamp: log.timestamp,
+        message: log.args ? log.args.join(' ') : '',
+        args: log.args,
+        stack: log.stackTrace,
+        buffered: log.buffered || false
+      }));
+
+      // Also include errors as console errors
+      const errorLogs = data.errors.map(err => ({
+        type: 'error',
+        timestamp: err.timestamp,
+        message: err.message,
+        args: [err.message],
+        stack: err.stack,
+        buffered: err.buffered || false,
+        url: err.url,
+        line: err.line
+      }));
+
+      // Combine and sort by timestamp
+      let allLogs = [...logs, ...errorLogs].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      // Apply filters
+      if (type) {
+        // Filter by log type (log, error, warn, info, debug)
+        allLogs = allLogs.filter(log => log.type === type);
+      }
+
+      if (filter) {
+        // Filter by text content (case-insensitive)
+        const filterLower = filter.toLowerCase();
+        allLogs = allLogs.filter(log => {
+          const message = log.message || '';
+          const argsStr = log.args ? log.args.join(' ') : '';
+          const combined = `${message} ${argsStr}`.toLowerCase();
+          return combined.includes(filterLower);
+        });
+      }
+
+      // Apply limit
+      if (limit && limit > 0) {
+        allLogs = allLogs.slice(-limit); // Get last N logs
+      }
+
+      return {
+        logs: allLogs,
+        debuggerAttached: true,
+        capturedFromStart: true,
+        totalCount: logs.length + errorLogs.length,
+        filteredCount: allLogs.length
+      };
+    } catch (error) {
+      console.error('[console.get] Failed to bootstrap debugger:', error);
+      // Fall back to injected script method
+    }
+  }
+
+  // Fallback: Try to get logs from injected script (won't have early logs)
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: activeTabId },
+      func: getConsoleLogs
+    });
+    return {
+      logs: result.result || [],
+      debuggerAttached: false,
+      capturedFromStart: false,
+      warning: "Early console logs may be missing. Debugger not available."
+    };
+  } catch (error) {
+    return {
+      logs: [],
+      error: "Failed to get console logs: " + error.message
+    };
+  }
 });
 
 // Helper function to capture full page by scrolling (with infinite scroll detection)
@@ -1096,7 +1189,45 @@ messageHandlers.set('page.navigate', async ({ url }) => {
 });
 
 // Add handlers for browser_* message types (MCP server compatibility)
-messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => {
+messageHandlers.set('browser_navigate', async ({ url, detectPopups = true, captureEarlyErrors = false }) => {
+  // If captureEarlyErrors is true, attach debugger BEFORE navigation
+  if (captureEarlyErrors && globalThis.__debuggerStateManager) {
+    console.log('[browser_navigate] Enabling early error capture mode');
+
+    // Get or create tab
+    if (!activeTabId) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab) {
+        activeTabId = activeTab.id;
+      } else {
+        // Create a new tab if no active tab
+        const newTab = await chrome.tabs.create({ url: 'about:blank' });
+        activeTabId = newTab.id;
+      }
+    }
+
+    // Attach debugger before navigation to capture early errors
+    try {
+      await globalThis.__debuggerStateManager.ensureAttached(activeTabId, ["console", "runtime", "network"]);
+      console.log('[browser_navigate] Debugger attached, navigating with early capture enabled');
+    } catch (e) {
+      console.warn('[browser_navigate] Could not attach debugger for early capture:', e.message);
+    }
+
+    // Now navigate with debugger already attached
+    await chrome.tabs.update(activeTabId, { url });
+    await waitForTabComplete(activeTabId);
+
+    // Detect popups if enabled
+    if (detectPopups) {
+      const popupResult = await detectPopupsInTab(activeTabId);
+      return { popupDetectionResult: popupResult };
+    }
+
+    return {};
+  }
+
+  // Normal navigation without early error capture
   // Get active tab if not set
   if (!activeTabId) {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1107,7 +1238,7 @@ messageHandlers.set('browser_navigate', async ({ url, detectPopups = true }) => 
       const newTab = await chrome.tabs.create({ url });
       activeTabId = newTab.id;
       await waitForTabComplete(activeTabId);
-      
+
       // Detect popups if enabled
       if (detectPopups) {
         // Wait a bit for popups to appear (they often load after page complete)

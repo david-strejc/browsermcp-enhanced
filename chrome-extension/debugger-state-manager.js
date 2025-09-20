@@ -16,6 +16,7 @@ class DebuggerStateManager {
     this.tabStates = new Map(); // tabId -> state
     this.tabQueues = new Map(); // tabId -> Promise queue for serialization
     this.tabData = new Map(); // tabId -> collected debug data
+    this.consoleStreamStarted = new Map(); // tabId -> boolean (tracks if we're past buffered messages)
 
     // Configuration
     this.maxEntries = 1000;
@@ -44,7 +45,12 @@ class DebuggerStateManager {
 
     // Listen for debugger events for data collection
     chrome.debugger.onEvent.addListener((source, method, params) => {
-      this.handleDebuggerEvent(source.tabId, method, params);
+      // Handle target attachment for early capture
+      if (method === "Target.attachedToTarget") {
+        this.handleTargetAttached(source.tabId, params);
+      } else {
+        this.handleDebuggerEvent(source.tabId, method, params);
+      }
     });
   }
 
@@ -87,6 +93,15 @@ class DebuggerStateManager {
         errors: [],
         performance: {}
       });
+      // Mark that we haven't started receiving live console messages yet
+      this.consoleStreamStarted.set(tabId, false);
+
+      // Set a timer to mark when buffered messages are done
+      // (Console.enable sends buffered messages first, then live ones)
+      setTimeout(() => {
+        this.consoleStreamStarted.set(tabId, true);
+        console.log(`[DebuggerState] Tab ${tabId} transitioned to live console messages`);
+      }, 500); // Give 500ms for buffered messages to arrive
     }
   }
 
@@ -106,6 +121,26 @@ class DebuggerStateManager {
     data.console = data.console.slice(-100);
     data.network = data.network.slice(-100);
     data.errors = data.errors.slice(-100);
+  }
+
+  // Bootstrap debugger for early capture (called once per tab)
+  async bootstrapDebugger(tabId) {
+    // Check if already attached
+    if (this.isAttached(tabId)) {
+      console.log(`[DebuggerState] Tab ${tabId} already bootstrapped`);
+      return true;
+    }
+
+    console.log(`[DebuggerState] Bootstrapping debugger for tab ${tabId} with early capture`);
+
+    // Use ensureAttached with all domains
+    const result = await this.ensureAttached(tabId, ["console", "runtime", "network"]);
+
+    if (result.success) {
+      console.log(`[DebuggerState] Bootstrap complete for tab ${tabId}`);
+    }
+
+    return result.success;
   }
 
   // Idempotent attach operation
@@ -156,9 +191,26 @@ class DebuggerStateManager {
           // Initialize data storage
           this.initTabData(tabId);
 
+          // Set up auto-attach to capture new targets (iframes, workers) from the start
+          try {
+            await this.sendCommand(tabId, "Target.setAutoAttach", {
+              autoAttach: true,
+              waitForDebuggerOnStart: true,  // Pause new targets before any script executes
+              flatten: true                   // Include iframe targets
+            });
+            console.log('[DebuggerState] Auto-attach enabled for early error capture');
+          } catch (e) {
+            console.log('[DebuggerState] Could not enable auto-attach:', e.message);
+          }
+
           // Enable domains - now sendCommand() will work because state is ATTACHED
           for (const domain of domains) {
-            if (domain === "console" || domain === "runtime") {
+            if (domain === "console") {
+              // Console.enable will replay buffered console messages!
+              await this.sendCommand(tabId, "Console.enable", {});
+              console.log('[DebuggerState] Console.enable sent - will receive buffered messages');
+            }
+            if (domain === "runtime") {
               await this.sendCommand(tabId, "Runtime.enable", {});
             }
             if (domain === "network") {
@@ -171,6 +223,22 @@ class DebuggerStateManager {
 
           // Always enable Log domain for errors
           await this.sendCommand(tabId, "Log.enable", {});
+
+          // Enable violation reports to capture CSP and other violations
+          await this.sendCommand(tabId, "Log.startViolationsReport", {
+            config: [
+              { name: "longTask", threshold: 200 },
+              { name: "longLayout", threshold: 30 },
+              { name: "blockedEvent", threshold: 100 },
+              { name: "blockedParser", threshold: -1 },
+              { name: "handler", threshold: 150 },
+              { name: "recurringHandler", threshold: 50 }
+            ]
+          }).catch(() => {}); // Ignore if not supported
+
+          // Note: To capture errors from page load, the debugger must be attached
+          // BEFORE navigation. Use Target.setAutoAttach with waitForDebuggerOnStart
+          // for new pages/iframes to pause them before execution.
           console.log(`[DebuggerState] Successfully attached to tab ${tabId}`);
           return { success: true };
 
@@ -294,7 +362,12 @@ class DebuggerStateManager {
     if (!data) return;
 
     switch (method) {
+      case "Console.messageAdded":
+        // This receives BOTH buffered (historical) and new console messages!
+        this.handleConsoleMessage(tabId, params);
+        break;
       case "Runtime.consoleAPICalled":
+        // This only receives new messages after attachment
         this.handleConsoleLog(tabId, params);
         break;
       case "Network.requestWillBeSent":
@@ -372,20 +445,95 @@ class DebuggerStateManager {
     }
   }
 
+  // Handle Console.messageAdded events (includes buffered/historical messages)
+  handleConsoleMessage(tabId, params) {
+    const data = this.getTabData(tabId);
+    const message = params.message;
+
+    // Determine if this is a buffered (historical) message
+    // Console.messageAdded comes in order: buffered first, then live
+    const isBuffered = !this.consoleStreamStarted.get(tabId);
+
+    const logEntry = {
+      type: message.level,
+      timestamp: new Date(message.timestamp * 1000).toISOString(),
+      args: message.text ? [message.text] : [],
+      source: message.source,
+      url: message.url,
+      line: message.line,
+      column: message.column,
+      stackTrace: message.stackTrace ? this.formatStackTrace(message.stackTrace) : null,
+      buffered: isBuffered,
+      fromConsoleAPI: false // This is from Console domain, not Runtime
+    };
+
+    // Add to console array
+    data.console.push(logEntry);
+
+    // Also add errors to the errors array
+    if (message.level === 'error' || message.level === 'warning') {
+      const error = {
+        timestamp: logEntry.timestamp,
+        message: message.text,
+        url: message.url,
+        line: message.line,
+        column: message.column,
+        source: message.source,
+        level: message.level,
+        buffered: isBuffered
+      };
+      data.errors.push(error);
+    }
+
+    // Manage array sizes
+    if (data.console.length > this.maxEntries) {
+      data.console = data.console.slice(-this.maxEntries);
+    }
+    if (data.errors.length > this.maxEntries) {
+      data.errors = data.errors.slice(-this.maxEntries);
+    }
+  }
+
   handleLogEntry(tabId, params) {
-    if (params.entry.level === "error") {
+    if (params.entry.level === "error" || params.entry.level === "warning") {
       const data = this.getTabData(tabId);
       const error = {
         timestamp: new Date().toISOString(),
         message: params.entry.text,
         url: params.entry.url,
         line: params.entry.lineNumber,
-        source: params.entry.source
+        source: params.entry.source,
+        level: params.entry.level,
+        networkRequestId: params.entry.networkRequestId
       };
 
       data.errors.push(error);
       if (data.errors.length > this.maxEntries) {
         data.errors = data.errors.slice(-this.maxEntries);
+      }
+    }
+  }
+
+  // Handle new target attachment (for early error capture)
+  async handleTargetAttached(tabId, params) {
+    const targetId = params.targetInfo.targetId;
+    const targetType = params.targetInfo.type;
+
+    console.log(`[DebuggerState] New target attached: ${targetType} (${targetId})`);
+
+    if (targetType === "iframe" || targetType === "page") {
+      try {
+        // Enable domains on the new target immediately
+        await this.sendCommand(tabId, "Runtime.enable", {}, targetId);
+        await this.sendCommand(tabId, "Log.enable", {}, targetId);
+        await this.sendCommand(tabId, "Network.enable", {}, targetId);
+
+        // Resume execution of the paused target
+        await this.sendCommand(tabId, "Runtime.runIfWaitingForDebugger", {}, targetId);
+
+        console.log(`[DebuggerState] Target ${targetId} domains enabled and resumed`);
+      } catch (e) {
+        console.error(`[DebuggerState] Failed to setup target ${targetId}:`, e);
       }
     }
   }
@@ -412,6 +560,20 @@ class DebuggerStateManager {
       .join('\n    ');
   }
 
+  // Send command with optional targetId for sub-targets
+  async sendCommandToTarget(tabId, method, params = {}, targetId = null) {
+    return new Promise((resolve, reject) => {
+      const target = targetId ? { tabId, targetId } : { tabId };
+      chrome.debugger.sendCommand(target, method, params, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+        } else {
+          resolve(result);
+        }
+      });
+    });
+  }
+
   // Get data for a specific tab and type
   async getData(tabId, type, limit = 50, filter = null) {
     // Ensure debugger is attached before getting data
@@ -431,6 +593,14 @@ class DebuggerStateManager {
         break;
       case "errors":
         result = data.errors;
+        // Sort errors so buffered ones appear first with clear labeling
+        result = result.sort((a, b) => {
+          // Buffered errors first
+          if (a.buffered && !b.buffered) return -1;
+          if (!a.buffered && b.buffered) return 1;
+          // Then by timestamp
+          return new Date(a.timestamp) - new Date(b.timestamp);
+        });
         break;
       case "performance":
         // Get fresh performance metrics

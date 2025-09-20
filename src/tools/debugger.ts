@@ -111,12 +111,35 @@ export const browser_debugger_get_data: Tool = {
 // Helper functions to format data
 function formatConsoleLogs(logs: any[]): string {
   if (!logs || logs.length === 0) return "No console logs captured.";
-  
-  return logs.map(log => 
-    `[${log.type.toUpperCase()}] ${log.timestamp}: ${log.args.map((arg: any) => 
-      typeof arg === 'object' ? JSON.stringify(arg) : arg
-    ).join(' ')}${log.stackTrace ? '\n  at ' + log.stackTrace : ''}`
-  ).join('\n');
+
+  // Separate buffered and live logs
+  const bufferedLogs = logs.filter(log => log.buffered);
+  const liveLogs = logs.filter(log => !log.buffered);
+
+  let output = "";
+
+  if (bufferedLogs.length > 0) {
+    output += "=== CONSOLE LOGS FROM BEFORE DEBUGGER ATTACHMENT ===\n";
+    output += bufferedLogs.map(log =>
+      `[${log.type.toUpperCase()}] ${log.timestamp}: ${log.args.map((arg: any) =>
+        typeof arg === 'object' ? JSON.stringify(arg) : arg
+      ).join(' ')}${log.stackTrace ? '\n  at ' + log.stackTrace : ''}`
+    ).join('\n');
+
+    if (liveLogs.length > 0) {
+      output += "\n\n=== CONSOLE LOGS AFTER DEBUGGER ATTACHMENT ===\n";
+    }
+  }
+
+  if (liveLogs.length > 0) {
+    output += liveLogs.map(log =>
+      `[${log.type.toUpperCase()}] ${log.timestamp}: ${log.args.map((arg: any) =>
+        typeof arg === 'object' ? JSON.stringify(arg) : arg
+      ).join(' ')}${log.stackTrace ? '\n  at ' + log.stackTrace : ''}`
+    ).join('\n');
+  }
+
+  return output;
 }
 
 function formatNetworkRequests(requests: any[]): string {
@@ -141,12 +164,37 @@ function formatPerformanceMetrics(metrics: any): string {
 
 function formatErrors(errors: any[]): string {
   if (!errors || errors.length === 0) return "No errors captured.";
-  
-  return errors.map(err => 
-    `[ERROR] ${err.timestamp}: ${err.message}\n` +
-    `  File: ${err.url}:${err.line}:${err.column}\n` +
-    `  Stack: ${err.stack || 'No stack trace'}`
-  ).join('\n\n');
+
+  // Separate buffered and live errors
+  const bufferedErrors = errors.filter(err => err.buffered);
+  const liveErrors = errors.filter(err => !err.buffered);
+
+  let output = "";
+
+  if (bufferedErrors.length > 0) {
+    output += "=== ERRORS THAT OCCURRED BEFORE DEBUGGER ATTACHMENT ===\n";
+    output += bufferedErrors.map(err =>
+      `[${err.level?.toUpperCase() || 'ERROR'}] ${err.timestamp}: ${err.message}\n` +
+      `  File: ${err.url || 'unknown'}:${err.line || '?'}:${err.column || '?'}\n` +
+      `  Source: ${err.source || 'unknown'}\n` +
+      `  Stack: ${err.stack || 'No stack trace'}`
+    ).join('\n\n');
+
+    if (liveErrors.length > 0) {
+      output += "\n\n=== ERRORS CAPTURED AFTER DEBUGGER ATTACHMENT ===\n";
+    }
+  }
+
+  if (liveErrors.length > 0) {
+    output += liveErrors.map(err =>
+      `[${err.level?.toUpperCase() || 'ERROR'}] ${err.timestamp}: ${err.message}\n` +
+      `  File: ${err.url || 'unknown'}:${err.line || '?'}:${err.column || '?'}\n` +
+      `  Source: ${err.source || 'unknown'}\n` +
+      `  Stack: ${err.stack || 'No stack trace'}`
+    ).join('\n\n');
+  }
+
+  return output;
 }
 
 // Export all debugger tools

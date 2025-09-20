@@ -40,8 +40,12 @@ export const WaitTool = z.object({
 // Custom tools
 export const GetConsoleLogsTool = z.object({
   name: z.literal("browser_get_console_logs"),
-  description: z.literal("Get console logs from the browser. Essential for debugging failed interactions, JavaScript errors, and page load issues."),
-  arguments: z.object({}),
+  description: z.literal("Get ALL console logs from browser including early errors before debugger. Auto-captures ENTIRE history from page load. Use filter='text' to search, type='error'|'log'|'warn' to filter by level, limit=N for last N entries. Examples: type='error' for errors only, filter='failed' for failures, filter='ERROR' type='error' for specific errors."),
+  arguments: z.object({
+    filter: z.string().optional().describe("Filter logs by text content (case-insensitive)"),
+    type: z.enum(['log', 'error', 'warn', 'info', 'debug']).optional().describe("Filter by log type"),
+    limit: z.number().optional().describe("Limit number of results (default 1000)")
+  }),
 });
 
 export const ScreenshotTool = z.object({

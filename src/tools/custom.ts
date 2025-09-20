@@ -24,16 +24,93 @@ export const getConsoleLogs: Tool = {
     description: GetConsoleLogsTool.shape.description.value,
     inputSchema: zodToJsonSchema(GetConsoleLogsTool.shape.arguments),
   },
-  handle: async (context, _params) => {
+  handle: async (context, params) => {
+    // Parse parameters with GetConsoleLogsTool schema
+    const input = GetConsoleLogsTool.shape.arguments.parse(params || {});
+
     const response = await context.sendSocketMessage(
       "console.get",
-      {},
+      {
+        filter: input.filter,
+        type: input.type,
+        limit: input.limit
+      },
     );
+
+    // Check if we have enhanced response from debugger
+    if (response.debuggerAttached) {
+      let output = "";
+
+      // Add status information
+      if (response.capturedFromStart) {
+        output += "=== CONSOLE LOGS (Full history from page load) ===\n";
+      } else {
+        output += "=== CONSOLE LOGS ===\n";
+        if (response.warning) {
+          output += `⚠️  ${response.warning}\n`;
+        }
+      }
+
+      // Show filter info if applicable
+      if (response.totalCount !== undefined && response.filteredCount !== undefined) {
+        output += `📊 Showing ${response.filteredCount} of ${response.totalCount} total logs`;
+        if (input.filter) output += ` (filter: "${input.filter}")`;
+        if (input.type) output += ` (type: ${input.type})`;
+        if (input.limit) output += ` (limit: ${input.limit})`;
+        output += "\n\n";
+      } else {
+        output += "\n";
+      }
+
+      // Format logs with better structure
+      if (response.logs && response.logs.length > 0) {
+        // Separate buffered and live logs if available
+        const bufferedLogs = response.logs.filter(log => log.buffered);
+        const liveLogs = response.logs.filter(log => !log.buffered);
+
+        if (bufferedLogs.length > 0) {
+          output += "--- Early Console Activity (before debugger) ---\n";
+          bufferedLogs.forEach(log => {
+            output += `[${log.type?.toUpperCase() || 'LOG'}] ${log.timestamp}: ${log.message || (log.args && log.args.join(' ')) || JSON.stringify(log)}\n`;
+            if (log.url && log.line) {
+              output += `  at ${log.url}:${log.line}\n`;
+            }
+            if (log.stack) {
+              output += `  Stack: ${log.stack}\n`;
+            }
+          });
+          output += "\n";
+        }
+
+        if (liveLogs.length > 0) {
+          if (bufferedLogs.length > 0) {
+            output += "--- Console Activity (after debugger) ---\n";
+          }
+          liveLogs.forEach(log => {
+            output += `[${log.type?.toUpperCase() || 'LOG'}] ${log.timestamp}: ${log.message || (log.args && log.args.join(' ')) || JSON.stringify(log)}\n`;
+            if (log.url && log.line) {
+              output += `  at ${log.url}:${log.line}\n`;
+            }
+            if (log.stack) {
+              output += `  Stack: ${log.stack}\n`;
+            }
+          });
+        }
+      } else {
+        output += "No console logs captured.";
+      }
+
+      return {
+        content: [{ type: "text", text: output }],
+      };
+    }
+
+    // Fallback to simple JSON formatting for old response format
     const text: string = response.logs
       .map((log) => JSON.stringify(log))
       .join("\n");
     return {
-      content: [{ type: "text", text }],
+      content: [{ type: "text", text: text || "No console logs captured." }],
     };
   },
 };
