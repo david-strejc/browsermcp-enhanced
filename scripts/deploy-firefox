@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Firefox Extension Deployment Script
+# Deploys the Firefox extension alongside Chrome extension
+
+set -e  # Exit on error
+set -u  # Exit on undefined variable
+
+# ========== CONFIGURATION ==========
+MCP_SERVER_DIR="${MCP_SERVER_DIR:-/home/david/.local/lib/browsermcp-enhanced}"
+FIREFOX_EXT_DIR="${FIREFOX_EXT_DIR:-$MCP_SERVER_DIR/firefox-extension}"
+CHROME_EXT_DIR="${CHROME_EXT_DIR:-$MCP_SERVER_DIR/chrome-extension}"
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# ========== FUNCTIONS ==========
+
+check_firefox() {
+    if command -v firefox &> /dev/null; then
+        echo -e "${GREEN}✓ Firefox found: $(firefox --version)${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Firefox not found${NC}"
+        return 1
+    fi
+}
+
+check_chrome() {
+    if command -v google-chrome &> /dev/null; then
+        echo -e "${GREEN}✓ Chrome found: $(google-chrome --version)${NC}"
+        return 0
+    else
+        echo -e "${YELLOW}⚠ Chrome not found${NC}"
+        return 1
+    fi
+}
+
+# ========== MAIN DEPLOYMENT ==========
+
+echo -e "${BOLD}${BLUE}========================================${NC}"
+echo -e "${BOLD}${BLUE}  Firefox Extension Deployment Script  ${NC}"
+echo -e "${BOLD}${BLUE}========================================${NC}"
+echo
+
+# Check browsers
+echo -e "${CYAN}Checking browsers...${NC}"
+check_firefox
+check_chrome || true
+
+# Check source files
+echo -e "\n${CYAN}Checking source files...${NC}"
+if [ ! -d "$CURRENT_DIR/firefox-extension" ]; then
+    echo -e "${RED}Error: firefox-extension directory not found at $CURRENT_DIR/firefox-extension${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✓ Firefox extension source found${NC}"
+
+# Create deployment directory if needed
+echo -e "\n${CYAN}Setting up deployment directories...${NC}"
+mkdir -p "$MCP_SERVER_DIR"
+mkdir -p "$FIREFOX_EXT_DIR"
+echo -e "${GREEN}✓ Deployment directory ready: $FIREFOX_EXT_DIR${NC}"
+
+# Backup existing Firefox extension if exists
+if [ -d "$FIREFOX_EXT_DIR" ] && [ "$(ls -A $FIREFOX_EXT_DIR 2>/dev/null)" ]; then
+    echo -e "\n${YELLOW}Backing up existing Firefox extension...${NC}"
+    BACKUP_NAME="firefox-ext-backup-$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$MCP_SERVER_DIR/backups"
+    cp -r "$FIREFOX_EXT_DIR" "$MCP_SERVER_DIR/backups/$BACKUP_NAME"
+    echo -e "${GREEN}✓ Backup created: backups/$BACKUP_NAME${NC}"
+fi
+
+# Deploy Firefox extension
+echo -e "\n${CYAN}Deploying Firefox extension...${NC}"
+rm -rf "$FIREFOX_EXT_DIR"/*
+cp -r "$CURRENT_DIR/firefox-extension/"* "$FIREFOX_EXT_DIR/"
+
+# Verify deployment
+if [ -f "$FIREFOX_EXT_DIR/manifest.json" ]; then
+    VERSION=$(grep '"version"' "$FIREFOX_EXT_DIR/manifest.json" | sed 's/.*"version": "\([^"]*\)".*/\1/')
+    echo -e "${GREEN}✓ Firefox extension deployed (version $VERSION)${NC}"
+else
+    echo -e "${RED}✗ Deployment verification failed${NC}"
+    exit 1
+fi
+
+# Check Chrome extension status
+echo -e "\n${CYAN}Checking Chrome extension...${NC}"
+if [ -f "$CHROME_EXT_DIR/manifest.json" ]; then
+    CHROME_VERSION=$(grep '"version"' "$CHROME_EXT_DIR/manifest.json" | sed 's/.*"version": "\([^"]*\)".*/\1/')
+    echo -e "${GREEN}✓ Chrome extension present (version $CHROME_VERSION)${NC}"
+else
+    echo -e "${YELLOW}⚠ Chrome extension not found at $CHROME_EXT_DIR${NC}"
+fi
+
+# Display installation instructions
+echo -e "\n${BOLD}${BLUE}========================================${NC}"
+echo -e "${BOLD}${BLUE}      Installation Instructions         ${NC}"
+echo -e "${BOLD}${BLUE}========================================${NC}"
+
+echo -e "\n${BOLD}${CYAN}Firefox Extension Installation:${NC}"
+echo -e "1. Open Firefox and navigate to: ${BOLD}about:debugging${NC}"
+echo -e "2. Click '${BOLD}This Firefox${NC}' in the left sidebar"
+echo -e "3. Click '${BOLD}Load Temporary Add-on${NC}'"
+echo -e "4. Navigate to: ${BOLD}$FIREFOX_EXT_DIR${NC}"
+echo -e "5. Select ${BOLD}manifest.json${NC}"
+echo -e "6. The extension icon will appear in the toolbar"
+
+echo -e "\n${BOLD}${CYAN}Chrome Extension Location:${NC}"
+echo -e "Path: ${BOLD}$CHROME_EXT_DIR${NC}"
+
+echo -e "\n${BOLD}${YELLOW}Testing Instructions:${NC}"
+echo -e "1. Ensure MCP server is running at ${BOLD}ws://localhost:8765${NC}"
+echo -e "2. Load the extension in your browser"
+echo -e "3. Click the extension icon to check connection status"
+echo -e "4. Test with a simple navigation command from Claude"
+
+echo -e "\n${BOLD}${YELLOW}⚠ Important Notes:${NC}"
+echo -e "• ${YELLOW}Only load ONE extension at a time${NC} (Chrome OR Firefox)"
+echo -e "• First extension to connect to MCP server wins"
+echo -e "• Firefox extension is temporary - reload after browser restart"
+echo -e "• For permanent Firefox installation, sign the extension via AMO"
+
+echo -e "\n${GREEN}${BOLD}✓ Deployment complete!${NC}"
+echo -e "${CYAN}Firefox extension ready at: ${BOLD}$FIREFOX_EXT_DIR${NC}"

@@ -1,10 +1,12 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 import * as fs from "fs";
 import * as path from "path";
+import sharp from "sharp";
 
 import { GetConsoleLogsTool, ScreenshotTool } from "../types/tool";
 
 import { Tool } from "./tool";
+import { loadScreenshotConfig } from "../config/screenshot";
 
 // Configuration for screenshot audit saving
 const SCREENSHOT_CONFIG = {
@@ -72,12 +74,108 @@ export const screenshot: Tool = {
     description: ScreenshotTool.shape.description.value,
     inputSchema: zodToJsonSchema(ScreenshotTool.shape.arguments),
   },
-  handle: async (context, _params) => {
+  handle: async (context, params) => {
+    // Load configuration
+    const config = loadScreenshotConfig();
+
+    // Parse parameters with defaults
+    const args = ScreenshotTool.shape.arguments.parse(params || {});
+
+    // Check if this is a Claude Code request and apply auto full-page if configured
+    const isClaudeCode = context.clientInfo?.name?.includes('Claude') ||
+                        context.clientInfo?.name?.includes('claude');
+
+    if (isClaudeCode && config.claudeCode.autoFullPage && !params?.captureMode) {
+      console.log('Auto-enabling full page mode for Claude Code request');
+      args.captureMode = 'fullpage';
+      // Apply Claude-specific defaults if not specified
+      if (!params?.quality) args.quality = config.claudeCode.defaultQuality;
+      if (!params?.format) args.format = config.claudeCode.defaultFormat;
+      if (!params?.jpegQuality && args.format === 'jpeg') {
+        args.jpegQuality = config.claudeCode.defaultJpegQuality;
+      }
+      if (!params?.fullPageMaxHeight) {
+        args.fullPageMaxHeight = config.claudeCode.fullPageMaxHeight;
+      }
+      if (!params?.fullPageScrollDelay) {
+        args.fullPageScrollDelay = config.claudeCode.fullPageScrollDelay;
+      }
+    }
+
+    // Determine quality settings based on preset
+    let effectiveMaxWidth = args.maxWidth;
+    let effectiveJpegQuality = args.jpegQuality;
+
+    if (!effectiveMaxWidth) {
+      switch (args.quality) {
+        case 'high':
+          effectiveMaxWidth = 4096; // No real limit
+          break;
+        case 'high-medium':
+          effectiveMaxWidth = 1920; // Full HD width
+          break;
+        case 'medium-plus':
+          effectiveMaxWidth = 1440; // Between Full HD and standard
+          break;
+        case 'medium':
+          effectiveMaxWidth = 1024;
+          break;
+        case 'low':
+          effectiveMaxWidth = 800;
+          break;
+        case 'ultra-low':
+          effectiveMaxWidth = 512;
+          break;
+      }
+    }
+
+    if (!effectiveJpegQuality && args.format === 'jpeg') {
+      switch (args.quality) {
+        case 'high':
+          effectiveJpegQuality = 95;
+          break;
+        case 'high-medium':
+          effectiveJpegQuality = 90;
+          break;
+        case 'medium-plus':
+          effectiveJpegQuality = 85;
+          break;
+        case 'medium':
+          effectiveJpegQuality = 80;
+          break;
+        case 'low':
+          effectiveJpegQuality = 60;
+          break;
+        case 'ultra-low':
+          effectiveJpegQuality = 40;
+          break;
+      }
+    }
+
+    // Build screenshot options to send to extension
+    const screenshotOptions = {
+      captureMode: args.captureMode,
+      format: args.format,
+      quality: effectiveJpegQuality,
+      maxWidth: effectiveMaxWidth,
+      maxHeight: args.maxHeight,
+      scaleFactor: args.scaleFactor,
+      region: args.region,
+      grayscale: args.grayscale,
+      blur: args.blur,
+      removeBackground: args.removeBackground,
+      optimize: args.optimize,
+      targetSizeKB: args.targetSizeKB,
+      fullPageScrollDelay: args.fullPageScrollDelay,
+      fullPageMaxHeight: args.fullPageMaxHeight,
+    };
+
+    // Send screenshot request with options
     const response = await context.sendSocketMessage(
       "browser_screenshot",
-      {},
+      screenshotOptions,
     );
-    
+
     // Check if we got base64 data
     if (!response.data) {
       return {
@@ -89,10 +187,10 @@ export const screenshot: Tool = {
         ],
       };
     }
-    
-    // Use the MIME type from the response if available, default to JPEG for better compression
-    const mimeType = response.mimeType || "image/jpeg";
-    
+
+    // Use the MIME type based on format
+    const mimeType = `image/${args.format}`;
+
     // Ensure the base64 data is clean (no data URL prefix)
     let imageData = response.data;
     if (imageData.startsWith('data:')) {
@@ -100,9 +198,18 @@ export const screenshot: Tool = {
       const parts = imageData.split(',');
       imageData = parts[1] || imageData;
     }
-    
+
     let auditInfo = "";
-    
+    let compressionInfo = "";
+
+    // Calculate compression info
+    const originalSizeKB = response.originalSizeKB || 0;
+    const finalSizeKB = Math.round((imageData.length * 0.75) / 1024); // Base64 to bytes approximation
+    if (originalSizeKB > 0) {
+      const compressionRatio = Math.round((1 - finalSizeKB / originalSizeKB) * 100);
+      compressionInfo = `[Compression: ${originalSizeKB}KB → ${finalSizeKB}KB (${compressionRatio}% reduction)]`;
+    }
+
     // Optionally save for audit purposes
     if (SCREENSHOT_CONFIG.enableAuditSave) {
       try {
@@ -110,20 +217,140 @@ export const screenshot: Tool = {
         if (!fs.existsSync(SCREENSHOT_CONFIG.auditDir)) {
           fs.mkdirSync(SCREENSHOT_CONFIG.auditDir, { recursive: true });
         }
-        
+
         // Cleanup old files if needed
         cleanupOldFiles(SCREENSHOT_CONFIG.auditDir, SCREENSHOT_CONFIG.maxFiles);
-        
-        // Generate filename with timestamp (use jpg extension if JPEG)
+
+        // Generate filename with timestamp and quality info
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-        const extension = mimeType === 'image/jpeg' ? 'jpg' : 'png';
-        const filename = `screenshot-${timestamp}.${extension}`;
+        const qualityInfo = args.quality !== 'medium' ? `-${args.quality}` : '';
+        const extension = args.format === 'jpeg' ? 'jpg' : args.format;
+        const filename = `screenshot-${timestamp}${qualityInfo}.${extension}`;
         const filepath = path.join(SCREENSHOT_CONFIG.auditDir, filename);
-        
+
         // Save the screenshot (use cleaned data if we extracted it from data URL)
-        const buffer = Buffer.from(imageData, 'base64');
+        let buffer = Buffer.from(imageData, 'base64');
+
+        // Process the image if needed (resize, compress, etc.)
+        if (args.quality !== 'high' || effectiveMaxWidth || args.maxHeight || args.scaleFactor || args.targetSizeKB || args.grayscale) {
+          try {
+            console.log(`Processing image with sharp: quality=${args.quality}, maxWidth=${effectiveMaxWidth}`);
+
+            let sharpInstance = sharp(buffer);
+
+            // Get image metadata
+            const metadata = await sharpInstance.metadata();
+            console.log(`Original image: ${metadata.width}x${metadata.height}, format: ${metadata.format}`);
+
+            // First, handle Full HD viewport cropping if enabled
+            if (args.maintainFullHD && metadata.width && metadata.height) {
+              const targetWidth = args.viewportWidth || 1920;
+              const targetHeight = args.viewportHeight || 1080;
+
+              // If image is larger than target viewport, crop from top-left
+              if (metadata.width > targetWidth || metadata.height > targetHeight) {
+                // Crop from top-left corner (0, 0)
+                const left = 0;
+                const top = 0;
+                const width = Math.min(targetWidth, metadata.width);
+                const height = Math.min(targetHeight, metadata.height);
+
+                sharpInstance = sharpInstance.extract({
+                  left: left,
+                  top: top,
+                  width: width,
+                  height: height
+                });
+
+                console.log(`Cropped to Full HD viewport from top-left: ${width}x${height} from ${metadata.width}x${metadata.height}`);
+
+                // Update metadata for subsequent operations
+                metadata.width = width;
+                metadata.height = height;
+              }
+            }
+
+            // Then resize if needed
+            if (effectiveMaxWidth || args.maxHeight) {
+              const resizeOptions: any = {};
+              if (effectiveMaxWidth) resizeOptions.width = effectiveMaxWidth;
+              if (args.maxHeight) resizeOptions.height = args.maxHeight;
+              resizeOptions.fit = 'inside'; // Maintain aspect ratio
+              resizeOptions.withoutEnlargement = true; // Don't upscale
+
+              sharpInstance = sharpInstance.resize(resizeOptions);
+              console.log(`Resizing to: width=${effectiveMaxWidth}, height=${args.maxHeight}`);
+            }
+
+            // Apply scale factor
+            if (args.scaleFactor && args.scaleFactor < 1) {
+              const newWidth = Math.round(metadata.width! * args.scaleFactor);
+              const newHeight = Math.round(metadata.height! * args.scaleFactor);
+              sharpInstance = sharpInstance.resize(newWidth, newHeight);
+              console.log(`Scaling to ${args.scaleFactor * 100}%: ${newWidth}x${newHeight}`);
+            }
+
+            // Convert to grayscale if requested
+            if (args.grayscale) {
+              sharpInstance = sharpInstance.grayscale();
+              console.log('Converting to grayscale');
+            }
+
+            // Apply blur if requested
+            if (args.blur && args.blur > 0) {
+              sharpInstance = sharpInstance.blur(args.blur);
+              console.log(`Applying blur: ${args.blur}`);
+            }
+
+            // Convert to the desired format with quality settings
+            if (args.format === 'jpeg') {
+              sharpInstance = sharpInstance.jpeg({
+                quality: effectiveJpegQuality || 80,
+                progressive: true,
+                mozjpeg: true // Use mozjpeg encoder for better compression
+              });
+            } else if (args.format === 'png') {
+              sharpInstance = sharpInstance.png({
+                quality: 100,
+                compressionLevel: 9 // Max compression
+              });
+            } else if (args.format === 'webp') {
+              sharpInstance = sharpInstance.webp({
+                quality: effectiveJpegQuality || 80
+              });
+            }
+
+            // Process the image
+            buffer = await sharpInstance.toBuffer();
+
+            // If target size is specified, try to meet it
+            if (args.targetSizeKB && buffer.length / 1024 > args.targetSizeKB) {
+              let currentQuality = effectiveJpegQuality || 80;
+              let attempts = 0;
+              const maxAttempts = 5;
+
+              while (buffer.length / 1024 > args.targetSizeKB && attempts < maxAttempts && currentQuality > 10) {
+                currentQuality = Math.max(10, currentQuality - 15);
+                buffer = await sharp(buffer)
+                  .jpeg({ quality: currentQuality, progressive: true, mozjpeg: true })
+                  .toBuffer();
+                attempts++;
+                console.log(`Attempt ${attempts}: quality=${currentQuality}, size=${Math.round(buffer.length / 1024)}KB`);
+              }
+            }
+
+            // Update imageData with the processed image
+            imageData = buffer.toString('base64');
+            console.log(`Image processed: final size=${Math.round(buffer.length / 1024)}KB`);
+
+          } catch (error) {
+            console.error('Sharp image processing failed:', error);
+            // Keep original buffer if processing fails
+          }
+        }
+
         fs.writeFileSync(filepath, buffer);
-        
+
         // Add audit info to be included in response
         const stats = fs.statSync(filepath);
         const fileSizeKB = Math.round(stats.size / 1024);
@@ -133,7 +360,7 @@ export const screenshot: Tool = {
         auditInfo = `\n[Audit save failed: ${e.message}]`;
       }
     }
-    
+
     const content = [
       {
         type: "image" as const,
@@ -141,15 +368,16 @@ export const screenshot: Tool = {
         mimeType: mimeType,
       }
     ];
-    
-    // Add audit info as a separate text block if present
-    if (auditInfo) {
+
+    // Add compression and audit info as a separate text block if present
+    const infoText = [compressionInfo, auditInfo].filter(Boolean).join('\n');
+    if (infoText) {
       content.push({
         type: "text",
-        text: auditInfo,
+        text: infoText,
       });
     }
-    
+
     return { content };
   },
 };

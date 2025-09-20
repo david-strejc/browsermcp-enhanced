@@ -683,6 +683,252 @@ messageHandlers.set('console.get', async () => {
   return { logs: result.result || [] };
 });
 
+// Helper function to capture full page by scrolling (with infinite scroll detection)
+async function captureFullPage(tabId, options = {}) {
+  const {
+    format = 'jpeg',
+    quality = 90,
+    scrollDelay = 500,
+    maxHeight = 20000,
+    maxScreenshots = 20,  // Maximum viewports to capture
+    quietMs = 800,        // Wait for DOM to settle
+    growTolerance = 150   // Pixels to consider as growth
+  } = options;
+
+  try {
+    // First, detect if page has infinite scroll with multiple attempts
+    const [infiniteCheck] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async (growTolerance) => {
+        // Better infinite scroll detection with multiple attempts
+        async function detectInfinite(attempts = 3, deltaTolerance = 300) {
+          let prev = document.body.scrollHeight;
+
+          for (let i = 0; i < attempts; i++) {
+            // Scroll to 80-90% of current height, not all the way down
+            window.scrollTo(0, prev - window.innerHeight * 0.2);
+            await new Promise(r => setTimeout(r, 800));
+
+            const curr = document.body.scrollHeight;
+            if (curr - prev > deltaTolerance) {
+              return true; // likely infinite
+            }
+            prev = curr;
+          }
+          return false; // did not grow enough across several tries
+        }
+
+        const isInfinite = await detectInfinite(3, growTolerance);
+        const initialHeight = document.body.scrollHeight;
+
+        // Scroll back to top
+        window.scrollTo(0, 0);
+
+        return {
+          isInfinite: isInfinite,
+          initialHeight: initialHeight
+        };
+      },
+      args: [growTolerance]
+    });
+
+    const isInfiniteScroll = infiniteCheck.result.isInfinite;
+    console.log('Infinite scroll detected:', isInfiniteScroll);
+
+    // Get initial page dimensions
+    const [pageInfo] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const body = document.body;
+        const html = document.documentElement;
+        const viewportHeight = window.innerHeight;
+        const viewportWidth = window.innerWidth;
+
+        // Hide fixed/sticky elements to avoid duplicates
+        const fixedElements = Array.from(document.querySelectorAll('*')).filter(el => {
+          const style = getComputedStyle(el);
+          return (style.position === 'fixed' || style.position === 'sticky') &&
+                 parseInt(style.height, 10) < 200;
+        });
+
+        // Store original display values and hide elements
+        fixedElements.forEach(el => {
+          el.dataset.__originalDisplay = el.style.display || '';
+          el.style.display = 'none';
+        });
+
+        // Save current scroll position
+        const originalScrollY = window.scrollY;
+        const originalScrollX = window.scrollX;
+
+        return {
+          viewportHeight,
+          viewportWidth,
+          originalScrollY,
+          originalScrollX,
+          fixedElementCount: fixedElements.length
+        };
+      }
+    });
+
+    const { viewportHeight, viewportWidth, originalScrollY } = pageInfo.result;
+    const screenshots = [];
+    let currentOffset = 0;
+    let capturedScreens = 0;
+    let totalCapturedHeight = 0;
+
+    console.log(`Full page capture started. Infinite scroll: ${isInfiniteScroll}`);
+
+    // Capture loop with smart stopping conditions
+    let reachedEnd = false;
+    while (capturedScreens < maxScreenshots && totalCapturedHeight < maxHeight && !reachedEnd) {
+      // ALWAYS capture visible area FIRST (before checking stop conditions)
+      const dataUrl = await chrome.tabs.captureVisibleTab(null, {
+        format: format === 'webp' ? 'png' : format,
+        quality: format === 'jpeg' ? quality : undefined
+      });
+
+      screenshots.push({
+        dataUrl,
+        offsetY: currentOffset
+      });
+
+      capturedScreens++;
+      totalCapturedHeight += viewportHeight;
+
+      // Check if we're near/at the bottom BEFORE scrolling further
+      const [bottomCheck] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => {
+          const nearBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 2;
+          return nearBottom;
+        }
+      });
+
+      if (bottomCheck.result) {
+        // We're at the bottom
+        if (isInfiniteScroll) {
+          // For infinite scroll, wait to see if more content loads
+          const [growthCheck] = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: async (timeout, tolerance) => {
+              const before = document.body.scrollHeight;
+              await new Promise(r => setTimeout(r, timeout));
+              return document.body.scrollHeight - before > tolerance;
+            },
+            args: [1200, growTolerance]
+          });
+
+          if (!growthCheck.result) {
+            console.log('No more content on infinite scroll, stopping');
+            reachedEnd = true;
+          }
+        } else {
+          // Regular site, we're done
+          console.log('Reached end of regular page');
+          reachedEnd = true;
+        }
+      }
+
+      if (!reachedEnd) {
+        // Scroll down for next capture
+        currentOffset += viewportHeight;
+        const [scrollResult] = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (scrollAmount) => {
+            window.scrollBy(0, scrollAmount);
+
+          },
+          args: [viewportHeight]
+        });
+
+        // Brief wait for smooth scrolling
+        await new Promise(resolve => setTimeout(resolve, scrollDelay));
+      }
+    }
+
+    console.log(`Captured ${screenshots.length} screenshots, total height: ${totalCapturedHeight}px`);
+
+    // Final defensive capture to ensure we got the footer
+    if (!reachedEnd && screenshots.length < maxScreenshots) {
+      console.log('Adding final defensive capture for footer');
+      const finalDataUrl = await chrome.tabs.captureVisibleTab(null, {
+        format: format === 'webp' ? 'png' : format,
+        quality: format === 'jpeg' ? quality : undefined
+      });
+
+      screenshots.push({
+        dataUrl: finalDataUrl,
+        offsetY: currentOffset
+      });
+    }
+
+    // Restore original scroll position and unhide fixed elements
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (scrollY) => {
+        window.scrollTo(0, scrollY);
+
+        // Restore fixed/sticky elements
+        document.querySelectorAll('[data-__original-display]').forEach(el => {
+          el.style.display = el.dataset.__originalDisplay;
+          delete el.dataset.__originalDisplay;
+        });
+      },
+      args: [originalScrollY]
+    });
+
+    // If only one screenshot, return it directly
+    if (screenshots.length === 1) {
+      return screenshots[0].dataUrl;
+    }
+
+    // Stitch screenshots together using offscreen document
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['BLOBS'],
+      justification: 'Stitch multiple screenshots for full page capture'
+    });
+
+    // Send screenshots to offscreen for stitching
+    const response = await new Promise((resolve, reject) => {
+      chrome.runtime.onMessage.addListener(function listener(msg) {
+        if (msg.type === 'fullpage-stitched') {
+          chrome.runtime.onMessage.removeListener(listener);
+          chrome.offscreen.closeDocument();
+          resolve(msg.data);
+        } else if (msg.type === 'stitch-error') {
+          chrome.runtime.onMessage.removeListener(listener);
+          chrome.offscreen.closeDocument();
+          reject(new Error(msg.error));
+        }
+      });
+
+      chrome.runtime.sendMessage({
+        type: 'stitch-screenshots',
+        data: {
+          screenshots,
+          totalHeight: totalCapturedHeight,
+          viewportWidth: viewportWidth,
+          viewportHeight,
+          format,
+          quality
+        }
+      });
+    });
+
+    return response.dataUrl;
+
+  } catch (error) {
+    console.error('Full page capture failed:', error);
+    // Fall back to viewport capture
+    return await chrome.tabs.captureVisibleTab(null, {
+      format: format === 'webp' ? 'png' : format,
+      quality: format === 'jpeg' ? quality : undefined
+    });
+  }
+}
+
 messageHandlers.set('screenshot.capture', async () => {
   // Capture as JPEG for smaller file size (better compression)
   // Quality 90 provides good balance between size and quality
@@ -695,7 +941,7 @@ messageHandlers.set('screenshot.capture', async () => {
 });
 
 // Add handler for browser_screenshot (MCP server compatibility)
-messageHandlers.set('browser_screenshot', async () => {
+messageHandlers.set('browser_screenshot', async (params = {}) => {
   try {
     // Ensure we have an active tab
     if (!activeTabId) {
@@ -704,31 +950,138 @@ messageHandlers.set('browser_screenshot', async () => {
         activeTabId = tab.id;
       }
     }
-    
-    console.log('Taking screenshot of tab:', activeTabId);
-    // Capture as JPEG for smaller file size (better compression)
-    // Quality 90 provides good balance between size and quality
-    const dataUrl = await chrome.tabs.captureVisibleTab(null, { 
-      format: 'jpeg',
-      quality: 90 
-    });
-    console.log('Data URL length:', dataUrl ? dataUrl.length : 0);
-    
+
+    console.log('Taking screenshot of tab:', activeTabId, 'with params:', params);
+
+    // Parse parameters with defaults
+    const {
+      format = 'jpeg',
+      quality = 80,  // JPEG quality (1-100)
+      captureMode = 'viewport',
+      maxWidth,
+      maxHeight,
+      scaleFactor,
+      region,
+      grayscale = false,
+      blur = 0,
+      removeBackground = false,
+      optimize = true,
+      targetSizeKB
+    } = params;
+
+    let dataUrl;
+    let originalSizeKB = 0;
+
+    // Capture based on mode
+    if (captureMode === 'fullpage') {
+      // Full page capture with scrolling
+      console.log('Starting full page capture with scrolling');
+      dataUrl = await captureFullPage(activeTabId, {
+        format: format === 'webp' ? 'png' : format,
+        quality: format === 'jpeg' ? quality : undefined,
+        scrollDelay: params.fullPageScrollDelay || 500,
+        maxHeight: params.fullPageMaxHeight || 20000,
+        maxScreenshots: 20,  // Max 20 viewports for infinite scroll
+        quietMs: 800,        // Wait for DOM to settle
+        growTolerance: 150   // Pixels to consider as growth
+      });
+    } else if (captureMode === 'region' && region) {
+      // Region capture would need content script coordination
+      // For now, capture viewport and note for future implementation
+      console.warn('Region capture not yet implemented, using viewport');
+      dataUrl = await chrome.tabs.captureVisibleTab(null, {
+        format: format === 'webp' ? 'png' : format,
+        quality: format === 'jpeg' ? quality : undefined
+      });
+    } else {
+      // Viewport capture (default)
+      dataUrl = await chrome.tabs.captureVisibleTab(null, {
+        format: format === 'webp' ? 'png' : format,
+        quality: format === 'jpeg' ? quality : undefined
+      });
+    }
+
+    console.log('Initial capture - Data URL length:', dataUrl ? dataUrl.length : 0);
+
+    // Process the image if resizing or other modifications are needed
+    if (maxWidth || maxHeight || scaleFactor || targetSizeKB || (grayscale && format === 'jpeg')) {
+      try {
+        // Create offscreen document for image processing
+        await chrome.offscreen.createDocument({
+          url: 'offscreen.html',
+          reasons: ['BLOBS'],
+          justification: 'Process and resize screenshot images'
+        }).catch(() => {
+          // Document might already exist, that's fine
+          console.log('Offscreen document already exists');
+        });
+
+        // Send image for processing
+        const processedResult = await new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Image processing timeout'));
+          }, 10000);
+
+          const listener = (message) => {
+            if (message.type === 'image-processed') {
+              clearTimeout(timeout);
+              chrome.runtime.onMessage.removeListener(listener);
+              resolve(message.data);
+            } else if (message.type === 'image-error') {
+              clearTimeout(timeout);
+              chrome.runtime.onMessage.removeListener(listener);
+              reject(new Error(message.error));
+            }
+          };
+
+          chrome.runtime.onMessage.addListener(listener);
+
+          // Send to offscreen document
+          chrome.runtime.sendMessage({
+            type: 'process-image',
+            data: {
+              dataUrl,
+              format,
+              quality,
+              maxWidth,
+              maxHeight,
+              scaleFactor,
+              grayscale,
+              targetSizeKB
+            }
+          });
+        });
+
+        originalSizeKB = Math.round(dataUrl.length * 0.75 / 1024);
+        dataUrl = processedResult.dataUrl;
+        console.log(`Image processed: ${processedResult.width}x${processedResult.height}, ` +
+                    `original: ${processedResult.originalWidth}x${processedResult.originalHeight}, ` +
+                    `size: ${processedResult.sizeKB}KB (was ${originalSizeKB}KB)`);
+
+      } catch (error) {
+        console.error('Image processing failed:', error);
+        console.warn('Falling back to original image');
+        // Continue with original image if processing fails
+      }
+    }
+
     // Extract base64 and MIME type from data URL
     const [header, base64] = dataUrl.split(',');
-    const mimeType = header.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
-    console.log('Base64 length:', base64 ? base64.length : 0, 'MIME type:', mimeType);
-    
+    const mimeType = header.match(/data:([^;]+)/)?.[1] || `image/${format}`;
+    const finalSizeKB = Math.round(base64.length * 0.75 / 1024);
+
+    console.log(`Screenshot complete - Format: ${format}, Size: ${finalSizeKB}KB, Quality: ${quality}`);
+
     if (!base64) {
       console.error('Screenshot captured but no base64 data found');
-      console.error('Data URL was:', dataUrl ? dataUrl.substring(0, 100) : 'undefined');
       return { error: 'Screenshot captured but no data found' };
     }
-    
-    // Log first 100 chars to verify data exists
-    console.log('Screenshot base64 preview:', base64.substring(0, 100));
-    
-    return { data: base64, mimeType: mimeType };
+
+    return {
+      data: base64,
+      mimeType: mimeType,
+      originalSizeKB: originalSizeKB || finalSizeKB
+    };
   } catch (error) {
     console.error('Screenshot failed:', error);
     return { error: `Screenshot failed: ${error.message}` };

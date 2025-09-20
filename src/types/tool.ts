@@ -46,8 +46,67 @@ export const GetConsoleLogsTool = z.object({
 
 export const ScreenshotTool = z.object({
   name: z.literal("browser_screenshot"),
-  description: z.literal("Take a screenshot of the current page"),
-  arguments: z.object({}),
+  description: z.literal("Capture page screenshot with adjustable quality/size. For Codex CLI/limited context: use quality='low', maxWidth=800, format='jpeg', jpegQuality=60. For detailed analysis: use quality='high', format='png'. Use captureMode='fullpage' for entire page height. Viewport capture is faster and smaller than full page."),
+  arguments: z.object({
+    // Quality presets
+    quality: z.enum(['high', 'high-medium', 'medium-plus', 'medium', 'low', 'ultra-low']).optional().default('medium')
+      .describe("Quality preset: 'high'=original, 'high-medium'=1920px, 'medium-plus'=1440px, 'medium'=1024px, 'low'=800px, 'ultra-low'=512px"),
+
+    // Viewport configuration
+    viewportWidth: z.number().min(800).max(3840).optional()
+      .describe("Target viewport width. If not set, uses actual page width"),
+    viewportHeight: z.number().min(600).max(2160).optional()
+      .describe("Target viewport height. If not set, uses actual page height"),
+    maintainFullHD: z.boolean().optional().default(false)
+      .describe("Crop/scale to Full HD (1920x1080). Default false for full page captures"),
+
+    // Size controls
+    maxWidth: z.number().min(256).max(4096).optional()
+      .describe("Max width in pixels (256-4096). Overrides quality preset. Lower = smaller file"),
+    maxHeight: z.number().min(256).max(4096).optional()
+      .describe("Max height in pixels (256-4096). Image maintains aspect ratio"),
+    scaleFactor: z.number().min(0.1).max(1.0).optional()
+      .describe("Scale factor (0.1-1.0). E.g., 0.5 = 50% size. Applied after maxWidth/maxHeight"),
+
+    // Format options
+    format: z.enum(['jpeg', 'png', 'webp']).optional().default('jpeg')
+      .describe("Image format. 'jpeg'=smallest files, 'png'=lossless, 'webp'=good compression"),
+    jpegQuality: z.number().min(10).max(100).optional()
+      .describe("JPEG quality (10-100). Lower = smaller file. Only for JPEG format. 60-70 good for context-limited"),
+
+    // Capture area
+    captureMode: z.enum(['viewport', 'fullpage', 'region']).optional().default('viewport')
+      .describe("'viewport'=visible area only (fastest/smallest), 'fullpage'=entire page height (auto-scrolls), 'region'=specific area"),
+
+    // Full page configuration
+    fullPageScrollDelay: z.number().min(100).max(2000).optional().default(500)
+      .describe("Delay between scroll steps in milliseconds when capturing full page (100-2000ms)"),
+    fullPageMaxHeight: z.number().min(1000).max(30000).optional().default(20000)
+      .describe("Maximum height for full page capture in pixels (1000-30000). Prevents infinite scroll pages from causing issues"),
+    autoFullPage: z.boolean().optional().default(false)
+      .describe("Automatically use full page mode when Claude Code requests screenshots (configurable)"),
+    region: z.object({
+      x: z.number().describe("X coordinate of region"),
+      y: z.number().describe("Y coordinate of region"),
+      width: z.number().describe("Width of region"),
+      height: z.number().describe("Height of region"),
+    }).optional()
+      .describe("Region coordinates for captureMode='region'. Captures specific area of page"),
+
+    // Processing options
+    grayscale: z.boolean().optional().default(false)
+      .describe("Convert to grayscale. Reduces file size ~30% while maintaining readability"),
+    blur: z.number().min(0).max(10).optional()
+      .describe("Apply blur (0-10). Can reduce file size for non-text areas"),
+    removeBackground: z.boolean().optional().default(false)
+      .describe("Try to remove white backgrounds. May reduce size for pages with large white areas"),
+
+    // Optimization
+    optimize: z.boolean().optional().default(true)
+      .describe("Apply automatic optimization based on content detection"),
+    targetSizeKB: z.number().min(10).max(1000).optional()
+      .describe("Target file size in KB (10-1000). System will adjust quality to meet target"),
+  }),
 });
 
 // Snapshot tools

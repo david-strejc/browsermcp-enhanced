@@ -1,6 +1,6 @@
 {
   "name": "@browsermcp/mcp-enhanced",
-  "version": "1.4.5",
+  "version": "1.7.3",
   "description": "Enhanced MCP server for browser automation with improved element selection, tab management, debugging capabilities, and token optimization",
   "author": "BrowserMCP Enhanced Contributors",
   "homepage": "https://github.com/browsermcp/mcp-enhanced",
@@ -46,6 +46,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.2.0",
     "commander": "^13.1.0",
+    "sharp": "^0.34.4",
     "ws": "^8.18.3",
     "zod": "^3.24.2",
     "zod-to-json-schema": "^3.24.3"

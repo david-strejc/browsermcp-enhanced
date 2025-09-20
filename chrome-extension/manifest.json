@@ -11,7 +11,8 @@
     "storage",
     "debugger",
     "alarms",
-    "idle"
+    "idle",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"
