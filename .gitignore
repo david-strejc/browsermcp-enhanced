@@ -40,3 +40,6 @@ HINT-SYSTEM-IMPLEMENTATION.md
 
 # Claude memory directory
 .claude/
+
+# Temporary files and directories
+tmp/
