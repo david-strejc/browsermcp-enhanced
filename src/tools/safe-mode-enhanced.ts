@@ -172,8 +172,8 @@ export const browserWaitFor: Tool = {
 // Query elements with attributes
 export const browserQuery: Tool = {
   schema: {
-    name: 'browser_extract',
-    description: 'Get attrs/text, collect links, or schema-based data from matched nodes',
+    name: 'browser_extract_html',
+    description: 'Extract HTML attrs/text, collect links, or use schema-based data extraction',
     inputSchema: {
       type: 'object',
       properties: {
