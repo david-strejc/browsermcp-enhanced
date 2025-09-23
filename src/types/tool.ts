@@ -144,12 +144,14 @@ export const HoverTool = z.object({
 
 export const TypeTool = z.object({
   name: z.literal("browser_type"),
-  description: z.literal("Type text into editable element. For input failures, use browser_get_console_logs and browser_execute_js to check element properties."),
+  description: z.literal("Type text into editable element with optional Enter key. For input failures, use browser_get_console_logs and browser_execute_js to check element properties."),
   arguments: z.object({
-    ref: z.string().describe("Exact target element reference from the page snapshot"),
-    element: z.string().describe("Human-readable element description used to obtain permission to interact with the element"),
+    ref: z.string().optional().describe("Exact target element reference from the page snapshot (optional if using selector)"),
+    selector: z.string().optional().describe("CSS selector for the input element (alternative to ref)"),
+    element: z.string().optional().describe("Human-readable element description used to obtain permission to interact with the element"),
     text: z.string().describe("Text to type into the element"),
-    submit: z.boolean().describe("Whether to submit entered text (press Enter after)"),
+    submit: z.boolean().optional().describe("Whether to submit entered text (press Enter after)"),
+    pressEnter: z.boolean().optional().describe("Alias for submit - press Enter after typing"),
   }),
 });
 

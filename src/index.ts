@@ -14,34 +14,26 @@ import * as tabs from "./tools/tabs";
 import { debuggerTools } from "./tools/debugger";
 import { executeJS, commonOperations } from "./tools/code-execution";
 import { fileUploadTools } from "./tools/file-upload";
-// import { browserMultitool } from "./tools/multitool"; // Old version disabled
 import { browser_multitool_v3 } from "./tools/multitool-v3";
 import { browser_execute_plan } from "./tools/execute-plan";
 import { browser_save_hint, browser_get_hints } from "./hints/index";
 import type { Tool } from "./tools/tool";
 
-// New enhanced tools
+// Consolidated enhanced tools
 import {
-  browserSetInput,
   browserScroll,
-  browserWaitFor,
-  browserQuery,
-  browserGetHtml,
-  browserGetOuterHtml,
+  browserQuery,  // Now includes collect_links and extract_data functionality
+  browserGetHtml,  // Now includes inner/outer HTML with flag
   browserFillForm,
   browserDismissOverlays
 } from "./tools/safe-mode-enhanced";
 
 import {
-  browserCollectLinks,
-  browserFetchHead,
-  browserExtractData
+  browserFetchHead  // Keep for HEAD request verification
 } from "./tools/batch-operations";
 
 import {
-  browserWaitForNetworkIdle,
-  browserWaitForDomStable,
-  browserWaitForReady
+  browserWaitForReady  // Universal wait tool - combines DOM, network, element waits
 } from "./tools/stability-tools";
 
 import packageJSON from "../package.json";
@@ -79,36 +71,29 @@ const hintTools: Tool[] = [
 
 const helperTools: Tool[] = [];
 
-// New safe-mode enhanced tools
+// Consolidated enhanced tools
 const safeModeEnhancedTools: Tool[] = [
-  browserSetInput,
   browserScroll,
-  browserWaitFor,
-  browserQuery,
-  browserGetHtml,
-  browserGetOuterHtml,
+  browserQuery,  // Universal query tool (simple/links/schema modes)
+  browserGetHtml,  // Universal HTML getter (inner/outer)
   browserFillForm,
   browserDismissOverlays,
 ];
 
-// New batch operation tools
+// Batch operation tools (minimal set)
 const batchOperationTools: Tool[] = [
-  browserCollectLinks,
-  browserFetchHead,
-  browserExtractData,
+  browserFetchHead,  // Keep for HEAD request verification
 ];
 
-// New stability tools
+// Stability tools (unified)
 const stabilityTools: Tool[] = [
-  browserWaitForNetworkIdle,
-  browserWaitForDomStable,
-  browserWaitForReady,
+  browserWaitForReady,  // Universal wait tool
 ];
 
 const snapshotTools: Tool[] = [
   browser_multitool_v3,  // New recipe generator multitool
   browser_execute_plan,  // Plan executor
-  common.navigate(true),
+  common.navigate(true),  // Enhanced with optional snapshot parameter
   common.goBack(true),
   common.goForward(true),
   snapshot.snapshot,

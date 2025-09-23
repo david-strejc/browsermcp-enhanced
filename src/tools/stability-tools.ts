@@ -182,10 +182,14 @@ export const browserWaitForDomStable: Tool = {
 export const browserWaitForReady: Tool = {
   schema: {
   name: 'browser_wait_for_ready',
-  description: 'Wait for page to be fully ready - combines DOM, network, and element checks.',
+  description: 'Universal wait tool - wait for elements, DOM stability, network idle, or custom conditions. Can wait for a single selector string or multiple complex conditions.',
   inputSchema: {
     type: 'object',
     properties: {
+      selector: {
+        type: 'string',
+        description: 'Simple mode: CSS selector to wait for (shorthand for single element wait)'
+      },
       conditions: {
         type: 'array',
         items: {
@@ -202,7 +206,7 @@ export const browserWaitForReady: Tool = {
             }
           }
         },
-        description: 'Array of conditions to wait for'
+        description: 'Advanced mode: Array of conditions to wait for'
       },
       mode: {
         type: 'string',
@@ -214,11 +218,51 @@ export const browserWaitForReady: Tool = {
         type: 'number',
         description: 'Overall timeout',
         default: 15000
+      },
+      visible: {
+        type: 'boolean',
+        description: 'For simple selector mode: wait for element to be visible',
+        default: false
       }
     }
   }
   },
-  handle: async (context: Context, { conditions = [], mode = 'all', timeoutMs = 15000 }) => {
+  handle: async (context: Context, { selector, conditions = [], mode = 'all', timeoutMs = 15000, visible = false }) => {
+    // Simple selector mode - just wait for a single element
+    if (selector && !conditions.length) {
+      const code = `
+        const el = await api.waitFor('${selector}', {
+          timeoutMs: ${timeoutMs},
+          visible: ${visible}
+        });
+        return el ? true : false;
+      `;
+
+      try {
+        const response = await context.sendSocketMessage("js.execute", {
+          code: code,
+          timeout: timeoutMs + 1000,
+          unsafe: false
+        }, { timeoutMs: timeoutMs + 1500 });
+        const result = response.result;
+        return {
+          content: [{
+            type: "text",
+            text: result ? `Element found: ${selector}` : `Element not found within ${timeoutMs}ms: ${selector}`
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Error waiting for element: ${error.message}`
+          }],
+          isError: true
+        };
+      }
+    }
+
+    // Advanced mode - multiple conditions
     const startTime = Date.now();
     const results: any[] = [];
 

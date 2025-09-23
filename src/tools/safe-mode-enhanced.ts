@@ -173,19 +173,56 @@ export const browserWaitFor: Tool = {
 export const browserQuery: Tool = {
   schema: {
     name: 'browser_query',
-    description: 'Query elements and extract specific attributes. Great for batch data extraction.',
+    description: 'Universal query tool - extract data from elements, collect links, or use schema-based extraction. Combines query, collect_links, and extract_data functionality.',
     inputSchema: {
       type: 'object',
       properties: {
+        mode: {
+          type: 'string',
+          enum: ['simple', 'links', 'schema'],
+          description: 'Query mode: simple (extract attributes), links (collect links), schema (structured extraction)',
+          default: 'simple'
+        },
         selector: {
           type: 'string',
-          description: 'CSS selector to query'
+          description: 'CSS selector to query (for simple mode) or container selector (for schema/links mode)'
         },
         attrs: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Attributes to extract from each element',
+          description: 'Simple mode: Attributes to extract from elements',
           default: ['textContent', 'href', 'value']
+        },
+        schema: {
+          type: 'object',
+          description: 'Schema mode: Extraction schema mapping field names to selectors',
+          additionalProperties: {
+            type: 'object',
+            properties: {
+              selector: { type: 'string' },
+              attr: { type: 'string' },
+              multiple: { type: 'boolean' }
+            }
+          }
+        },
+        hrefContains: {
+          type: 'string',
+          description: 'Links mode: Filter links where href contains this string'
+        },
+        textContains: {
+          type: 'string',
+          description: 'Links mode: Filter links where text contains this string'
+        },
+        exclude: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Links mode: Exclude links containing these strings in href',
+          default: []
+        },
+        unique: {
+          type: 'boolean',
+          description: 'Links mode: Return only unique URLs',
+          default: true
         },
         limit: {
           type: 'number',
@@ -194,77 +231,152 @@ export const browserQuery: Tool = {
         },
         includeHidden: {
           type: 'boolean',
-          description: 'Include hidden elements in results',
+          description: 'Include hidden elements',
           default: false
         }
       },
       required: ['selector']
     }
   },
-  handle: async (context: Context, { selector, attrs = ['textContent', 'href', 'value'], limit = 100, includeHidden = false }) => {
-    const code = `
-      return api.query('${selector}', {
-        attrs: ${JSON.stringify(attrs)},
-        limit: ${limit},
-        includeHidden: ${includeHidden}
-      });
-    `;
+  handle: async (context: Context, params) => {
+    const {
+      mode = 'simple',
+      selector,
+      attrs = ['textContent', 'href', 'value'],
+      schema,
+      hrefContains,
+      textContains,
+      exclude = [],
+      unique = true,
+      limit = 100,
+      includeHidden = false
+    } = params;
 
-    try {
-      const response = await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: 5000,
-        unsafe: false
-      }, { timeoutMs: 5500 });
-      const result = response.result;
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            success: true,
-            elements: result,
-            count: result.length
-          }, null, 2)
-        }]
-      };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-};
+    let code = '';
 
-// Get HTML content
-export const browserGetHtml: Tool = {
-  schema: {
-    name: 'browser_get_html',
-    description: 'Get inner HTML content of an element. Direct access without unsafe mode.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        selector: {
-          type: 'string',
-          description: 'CSS selector of the element'
+    if (mode === 'links') {
+      // Links collection mode
+      code = `
+        const container = document.querySelector('${selector || 'body'}');
+        if (!container) return { links: [], error: 'Container not found' };
+
+        let links = Array.from(container.querySelectorAll('a[href]'));
+
+        // Apply filters
+        ${hrefContains ? `links = links.filter(a => a.href.includes('${hrefContains}'));` : ''}
+        ${textContains ? `links = links.filter(a => a.textContent.toLowerCase().includes('${textContains.toLowerCase()}'));` : ''}
+
+        // Apply exclusions
+        const excludePatterns = ${JSON.stringify(exclude)};
+        if (excludePatterns.length > 0) {
+          links = links.filter(a => !excludePatterns.some(pattern => a.href.includes(pattern)));
         }
-      },
-      required: ['selector']
+
+        // Extract data
+        let results = links.slice(0, ${limit}).map(a => ({
+          href: a.href,
+          text: a.textContent.trim(),
+          title: a.title || '',
+          target: a.target || '_self'
+        }));
+
+        // Make unique if requested
+        ${unique ? `
+        const seen = new Set();
+        results = results.filter(link => {
+          if (seen.has(link.href)) return false;
+          seen.add(link.href);
+          return true;
+        });
+        ` : ''}
+
+        return { links: results, count: results.length };
+      `;
+    } else if (mode === 'schema' && schema) {
+      // Schema-based extraction mode
+      code = `
+        (function() {
+          const containers = Array.from(document.querySelectorAll('${selector}')).slice(0, ${limit});
+          const schema = ${JSON.stringify(schema)};
+
+          const results = containers.map(container => {
+            const item = {};
+
+            for (const [fieldName, config] of Object.entries(schema)) {
+              const selector = config.selector || fieldName;
+              const attr = config.attr || 'textContent';
+              const multiple = config.multiple || false;
+
+              if (multiple) {
+                const elements = container.querySelectorAll(selector);
+                item[fieldName] = Array.from(elements).map(el => {
+                  if (attr === 'textContent') {
+                    return el.textContent.trim();
+                  } else {
+                    return el.getAttribute(attr) || el[attr];
+                  }
+                });
+              } else {
+                const element = container.querySelector(selector);
+                if (element) {
+                  if (attr === 'textContent') {
+                    item[fieldName] = element.textContent.trim();
+                  } else {
+                    item[fieldName] = element.getAttribute(attr) || element[attr];
+                  }
+                } else {
+                  item[fieldName] = null;
+                }
+              }
+            }
+
+            return item;
+          });
+
+          return {
+            data: results,
+            count: results.length
+          };
+        })()
+      `;
+    } else {
+      // Simple attribute extraction mode
+      code = `
+        return api.query('${selector}', {
+          attrs: ${JSON.stringify(attrs)},
+          limit: ${limit},
+          includeHidden: ${includeHidden}
+        });
+      `;
     }
-  },
-  handle: async (context: Context, { selector }) => {
-    const code = `return api.getHTML('${selector}');`;
 
     try {
       const response = await context.sendSocketMessage("js.execute", {
         code: code,
-        timeout: 5000,
-        unsafe: false
-      }, { timeoutMs: 5500 });
+        timeout: 10000,
+        unsafe: mode === 'schema' || mode === 'links'
+      }, { timeoutMs: 10500 });
       const result = response.result;
-      return {
-        content: [{
-          type: "text",
-          text: result || "Element not found"
-        }]
-      };
+
+      if (mode === 'simple') {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              elements: result,
+              count: result.length
+            }, null, 2)
+          }]
+        };
+      } else {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(result, null, 2)
+          }]
+        };
+      }
     } catch (error: any) {
       return {
         content: [{
@@ -277,24 +389,31 @@ export const browserGetHtml: Tool = {
   }
 };
 
-// Get outer HTML content
-export const browserGetOuterHtml: Tool = {
+// Get HTML content (merged inner/outer)
+export const browserGetHtml: Tool = {
   schema: {
-    name: 'browser_get_outer_html',
-    description: 'Get outer HTML content of an element including the element itself.',
+    name: 'browser_get_html',
+    description: 'Get HTML content of an element. Can get either inner or outer HTML.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: {
           type: 'string',
           description: 'CSS selector of the element'
+        },
+        outer: {
+          type: 'boolean',
+          description: 'Whether to get outer HTML (includes the element itself) or inner HTML (default: false)',
+          default: false
         }
       },
       required: ['selector']
     }
   },
-  handle: async (context: Context, { selector }) => {
-    const code = `return api.getOuterHTML('${selector}');`;
+  handle: async (context: Context, { selector, outer = false }) => {
+    const code = outer
+      ? `return api.getOuterHTML('${selector}');`
+      : `return api.getHTML('${selector}');`;
 
     try {
       const response = await context.sendSocketMessage("js.execute", {

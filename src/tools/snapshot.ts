@@ -143,17 +143,57 @@ export const type: Tool = {
   },
   handle: async (context: Context, params) => {
     const validatedParams = TypeTool.shape.arguments.parse(params);
-    await context.sendSocketMessage("dom.type", { 
-      ref: validatedParams.ref, 
-      text: validatedParams.text, 
-      submit: validatedParams.submit 
+
+    // Handle both ref and selector inputs
+    if (!validatedParams.ref && !validatedParams.selector) {
+      throw new Error("Either 'ref' or 'selector' must be provided");
+    }
+
+    // Determine if we should press Enter (support both submit and pressEnter)
+    const shouldPressEnter = validatedParams.submit || validatedParams.pressEnter || false;
+
+    // If selector provided, use safe-mode API
+    if (validatedParams.selector && !validatedParams.ref) {
+      const code = `
+        return await api.setInput('${validatedParams.selector}', '${validatedParams.text}', { pressEnter: ${shouldPressEnter} });
+      `;
+
+      try {
+        const response = await context.sendSocketMessage("js.execute", {
+          code: code,
+          timeout: 5000,
+          unsafe: false
+        }, { timeoutMs: 5500 });
+
+        const result = response.result;
+        return {
+          content: [{
+            type: "text",
+            text: result ? `Typed "${validatedParams.text}" into selector "${validatedParams.selector}"${shouldPressEnter ? ' and pressed Enter' : ''}` : 'Failed to type - element not found or not an input'
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text",
+            text: `Error typing into selector: ${error.message}`
+          }]
+        };
+      }
+    }
+
+    // Use ref-based typing for backward compatibility
+    await context.sendSocketMessage("dom.type", {
+      ref: validatedParams.ref,
+      text: validatedParams.text,
+      submit: shouldPressEnter
     });
     const snapshot = await captureAriaSnapshot(context);
     return {
       content: [
         {
           type: "text",
-          text: `Typed "${validatedParams.text}" into "${validatedParams.element}"`,
+          text: `Typed "${validatedParams.text}" into "${validatedParams.element || validatedParams.ref}"${shouldPressEnter ? ' and pressed Enter' : ''}`,
         },
         ...snapshot.content,
       ],

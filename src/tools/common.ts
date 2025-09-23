@@ -7,21 +7,30 @@ import {
   PressKeyTool,
   WaitTool,
 } from "../types/tool";
-
+import { z } from "zod";
 import { captureAriaSnapshot } from "../utils/aria-snapshot";
 
 import type { Tool, ToolFactory } from "./tool";
 
-export const navigate: ToolFactory = (snapshot) => ({
+// Enhanced NavigateTool with optional snapshot
+const NavigateToolEnhanced = z.object({
+  name: z.literal("browser_navigate"),
+  arguments: z.object({
+    url: z.string().describe("The URL to navigate to"),
+    snapshot: z.boolean().optional().describe("Whether to capture a snapshot after navigation (default: true)"),
+  }),
+});
+
+export const navigate: ToolFactory = (defaultSnapshot = true) => ({
   schema: {
-    name: NavigateTool.shape.name.value,
-    description: NavigateTool.shape.description.value,
-    inputSchema: zodToJsonSchema(NavigateTool.shape.arguments),
+    name: NavigateToolEnhanced.shape.name.value,
+    description: "Navigate to a URL with optional snapshot",
+    inputSchema: zodToJsonSchema(NavigateToolEnhanced.shape.arguments),
   },
   handle: async (context, params) => {
-    const { url } = NavigateTool.shape.arguments.parse(params);
+    const { url, snapshot = defaultSnapshot } = NavigateToolEnhanced.shape.arguments.parse(params);
     const response = await context.sendSocketMessage("browser_navigate", { url, detectPopups: true });
-    
+
     // Simply report popup detection
     let popupInfo = '';
     if (response && response.popupsDetected && response.popups && response.popups.length > 0) {
@@ -29,7 +38,7 @@ export const navigate: ToolFactory = (snapshot) => ({
       popupInfo = `\n\n[POPUP DETECTED: ${popup.containerSelector}]\n`;
       popupInfo += `[YOU MUST USE browser_execute_js TO CLICK ACCEPT/AGREE SO THE POPUP WON'T APPEAR AGAIN]`;
     }
-    
+
     if (snapshot) {
       const snapshotResult = await captureAriaSnapshot(context);
       // Append popup info to snapshot text
@@ -38,7 +47,7 @@ export const navigate: ToolFactory = (snapshot) => ({
       }
       return snapshotResult;
     }
-    
+
     return {
       content: [
         {
