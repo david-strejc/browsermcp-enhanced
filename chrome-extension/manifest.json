@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "BrowserMCP Enhanced",
-  "version": "1.1.0",
+  "version": "1.8.0",
   "description": "Enhanced BrowserMCP with CSP-safe execution and auto-reconnect",
   "permissions": [
     "tabs",
@@ -32,7 +32,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["popup-detector-simple.js", "element-tracker.js", "element-validator.js", "code-executor-rpc.js", "feedback-collector.js", "content.js"],
+      "js": ["popup-detector-simple.js", "element-tracker.js", "element-validator.js", "code-executor-safe.js", "code-executor-rpc.js", "feedback-collector.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

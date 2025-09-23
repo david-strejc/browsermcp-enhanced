@@ -96,7 +96,7 @@ const MCPSafeAPI = {
   
   // Utilities
   wait: (ms) => new Promise(resolve => setTimeout(resolve, ms)),
-  
+
   scrollTo: (selector) => {
     const el = document.querySelector(selector);
     if (el) {
@@ -104,6 +104,211 @@ const MCPSafeAPI = {
       return true;
     }
     return false;
+  },
+
+  // NEW: Enhanced input operations
+  setInput: async (selector, value, options = {}) => {
+    const el = document.querySelector(selector);
+    if (!el || !('value' in el)) return false;
+
+    // Clear existing value
+    el.value = '';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+
+    // Set new value
+    el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // Optional Enter key press
+    if (options.pressEnter) {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', keyCode: 13, bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', keyCode: 13, bubbles: true }));
+    }
+
+    return true;
+  },
+
+  // NEW: Advanced scrolling
+  scroll: async (options = {}) => {
+    const defaults = {
+      to: 'bottom', // 'top', 'bottom', 'element', or pixel value
+      steps: 1,
+      delayMs: 500,
+      smooth: true
+    };
+    const opts = { ...defaults, ...options };
+
+    if (opts.to === 'bottom') {
+      for (let i = 0; i < opts.steps; i++) {
+        window.scrollTo({
+          top: document.documentElement.scrollHeight,
+          behavior: opts.smooth ? 'smooth' : 'auto'
+        });
+        if (i < opts.steps - 1) {
+          await new Promise(r => setTimeout(r, opts.delayMs));
+        }
+      }
+    } else if (opts.to === 'top') {
+      window.scrollTo({ top: 0, behavior: opts.smooth ? 'smooth' : 'auto' });
+    } else if (typeof opts.to === 'number') {
+      window.scrollTo({ top: opts.to, behavior: opts.smooth ? 'smooth' : 'auto' });
+    } else if (typeof opts.to === 'string') {
+      // Assume it's a selector
+      const el = document.querySelector(opts.to);
+      if (el) {
+        el.scrollIntoView({ behavior: opts.smooth ? 'smooth' : 'auto', block: 'center' });
+      }
+    }
+
+    return true;
+  },
+
+  // NEW: Wait for element
+  waitFor: async (selector, options = {}) => {
+    const defaults = {
+      timeoutMs: 10000,
+      visible: false,
+      intervalMs: 100
+    };
+    const opts = { ...defaults, ...options };
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < opts.timeoutMs) {
+      const el = document.querySelector(selector);
+
+      if (el) {
+        if (!opts.visible) return el;
+
+        // Check visibility
+        const rect = el.getBoundingClientRect();
+        const isVisible = rect.width > 0 && rect.height > 0 &&
+                         el.offsetParent !== null &&
+                         window.getComputedStyle(el).display !== 'none';
+
+        if (isVisible) return el;
+      }
+
+      await new Promise(r => setTimeout(r, opts.intervalMs));
+    }
+
+    return null;
+  },
+
+  // NEW: Query with attributes
+  query: (selector, options = {}) => {
+    const defaults = {
+      attrs: ['textContent', 'href', 'value'],
+      limit: 100,
+      includeHidden: false
+    };
+    const opts = { ...defaults, ...options };
+
+    const elements = Array.from(document.querySelectorAll(selector));
+    let results = elements.slice(0, opts.limit);
+
+    // Filter hidden if requested
+    if (!opts.includeHidden) {
+      results = results.filter(el => {
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && el.offsetParent !== null;
+      });
+    }
+
+    return results.map(el => {
+      const data = {};
+      opts.attrs.forEach(attr => {
+        if (attr === 'textContent') {
+          data[attr] = el.textContent?.trim();
+        } else {
+          data[attr] = el.getAttribute(attr) || el[attr];
+        }
+      });
+      return data;
+    });
+  },
+
+  // NEW: Get HTML content
+  getHTML: (selector) => {
+    const el = document.querySelector(selector);
+    return el ? el.innerHTML : null;
+  },
+
+  getOuterHTML: (selector) => {
+    const el = document.querySelector(selector);
+    return el ? el.outerHTML : null;
+  },
+
+  // NEW: Form operations
+  fillForm: (formSelector, data) => {
+    const form = document.querySelector(formSelector);
+    if (!form) return false;
+
+    let filled = 0;
+    for (const [name, value] of Object.entries(data)) {
+      // Try by name attribute
+      let input = form.querySelector(`[name="${name}"]`);
+
+      // Try by id
+      if (!input) {
+        input = form.querySelector(`#${name}`);
+      }
+
+      // Try by label text
+      if (!input) {
+        const label = Array.from(form.querySelectorAll('label')).find(l =>
+          l.textContent.toLowerCase().includes(name.toLowerCase())
+        );
+        if (label) {
+          input = form.querySelector(`#${label.getAttribute('for')}`) ||
+                  label.querySelector('input, select, textarea');
+        }
+      }
+
+      if (input) {
+        if (input.type === 'checkbox' || input.type === 'radio') {
+          input.checked = !!value;
+        } else {
+          input.value = value;
+        }
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        filled++;
+      }
+    }
+
+    return filled > 0;
+  },
+
+  // NEW: Dismiss overlays
+  dismissOverlays: (selectors = []) => {
+    const defaultSelectors = [
+      '.modal-close', '.close-button', '[aria-label*="close"]',
+      '.overlay', '.popup-close', '.dismiss', '.skip',
+      '[class*="typeahead"][class*="overlay"]', '.artdeco-toasts'
+    ];
+
+    const allSelectors = [...defaultSelectors, ...selectors];
+    let dismissed = 0;
+
+    for (const selector of allSelectors) {
+      const elements = document.querySelectorAll(selector);
+      elements.forEach(el => {
+        // Try clicking close buttons
+        if (selector.includes('close') || selector.includes('dismiss')) {
+          el.click();
+          dismissed++;
+        } else {
+          // Try hiding overlays
+          el.style.display = 'none';
+          dismissed++;
+        }
+      });
+    }
+
+    return dismissed;
   },
   
   getPageInfo: () => ({

@@ -20,6 +20,30 @@ import { browser_execute_plan } from "./tools/execute-plan";
 import { browser_save_hint, browser_get_hints } from "./hints/index";
 import type { Tool } from "./tools/tool";
 
+// New enhanced tools
+import {
+  browserSetInput,
+  browserScroll,
+  browserWaitFor,
+  browserQuery,
+  browserGetHtml,
+  browserGetOuterHtml,
+  browserFillForm,
+  browserDismissOverlays
+} from "./tools/safe-mode-enhanced";
+
+import {
+  browserCollectLinks,
+  browserFetchHead,
+  browserExtractData
+} from "./tools/batch-operations";
+
+import {
+  browserWaitForNetworkIdle,
+  browserWaitForDomStable,
+  browserWaitForReady
+} from "./tools/stability-tools";
+
 import packageJSON from "../package.json";
 
 function setupExitWatchdog(server: Server) {
@@ -55,6 +79,32 @@ const hintTools: Tool[] = [
 
 const helperTools: Tool[] = [];
 
+// New safe-mode enhanced tools
+const safeModeEnhancedTools: Tool[] = [
+  browserSetInput,
+  browserScroll,
+  browserWaitFor,
+  browserQuery,
+  browserGetHtml,
+  browserGetOuterHtml,
+  browserFillForm,
+  browserDismissOverlays,
+];
+
+// New batch operation tools
+const batchOperationTools: Tool[] = [
+  browserCollectLinks,
+  browserFetchHead,
+  browserExtractData,
+];
+
+// New stability tools
+const stabilityTools: Tool[] = [
+  browserWaitForNetworkIdle,
+  browserWaitForDomStable,
+  browserWaitForReady,
+];
+
 const snapshotTools: Tool[] = [
   browser_multitool_v3,  // New recipe generator multitool
   browser_execute_plan,  // Plan executor
@@ -75,6 +125,9 @@ const snapshotTools: Tool[] = [
   ...fileUploadTools,
   ...hintTools,
   ...helperTools,
+  ...safeModeEnhancedTools,  // Add new safe-mode tools
+  ...batchOperationTools,     // Add batch operation tools
+  ...stabilityTools,          // Add stability tools
 ];
 
 const resources: Resource[] = [];

@@ -68,8 +68,38 @@ export async function createServerWithTools(options: Options): Promise<Server> {
     }
 
     try {
-      const result = await tool.handle(context, request.params.arguments);
-      return result;
+      const raw = await tool.handle(context, request.params.arguments) as any;
+
+      // If tool already returned proper MCP ToolResult, pass it through
+      if (raw && Array.isArray(raw.content)) {
+        return raw;
+      }
+
+      // Normalize non-MCP shapes
+      let text: string;
+      let isError = false;
+
+      // Map common ad-hoc error shapes to MCP
+      if (raw && raw.success === false && (raw.error || raw.message)) {
+        text = String(raw.error || raw.message);
+        isError = true;
+      } else if (raw === undefined || raw === null) {
+        text = 'Tool returned no data';
+        isError = true;
+      } else if (typeof raw === 'string') {
+        text = raw;
+      } else {
+        try {
+          text = JSON.stringify(raw, null, 2);
+        } catch {
+          text = String(raw);
+        }
+      }
+
+      return {
+        content: [{ type: 'text', text }],
+        isError
+      };
     } catch (error) {
       return {
         content: [{ type: "text", text: String(error) }],
@@ -90,8 +120,9 @@ export async function createServerWithTools(options: Options): Promise<Server> {
     return { contents };
   });
 
+  const originalClose = server.close.bind(server);
   server.close = async () => {
-    await server.close();
+    await originalClose();
     await wss.close();
     await context.close();
   };
