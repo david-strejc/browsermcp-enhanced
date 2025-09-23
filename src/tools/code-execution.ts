@@ -6,7 +6,7 @@ import type { Tool } from "./tool";
 // Define the tool schema
 const ExecuteCodeTool = z.object({
   name: z.literal("browser_execute_js"),
-  description: z.literal("Execute JavaScript in browser. CRITICAL: In UNSAFE mode (unsafe:true) you MUST wrap code in IIFE: (function(){...})() for document/window/fetch access. SAFE mode (default): Use await api.* methods, NO wrapper needed. See code parameter for examples."),
+  description: z.literal("Run JS in page; if unsafe=true wrap code as IIFE: (()=>{...})()"),
   arguments: z.object({
     code: z.string().describe(`JavaScript code to execute.
 
@@ -124,7 +124,7 @@ export const executeJS: Tool = {
 // Helper tool for common operations
 const CommonOperationsTool = z.object({
   name: z.literal("browser_common_operation"),
-  description: z.literal("Perform common browser operations using pre-built scripts. Includes debugging utilities like popup detection and element validation."),
+  description: z.literal("Run pre-built multi-step scripts for common workflows"),
   arguments: z.object({
     operation: z.enum([
       "hide_popups",

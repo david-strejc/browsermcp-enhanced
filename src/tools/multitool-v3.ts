@@ -453,26 +453,7 @@ function generateNavigationPlan(params: any): ToolCall[] {
 export const browser_multitool_v3: Tool = {
   schema: {
     name: 'browser_multitool',
-    description: `🎯 INTELLIGENT PATTERN RECOGNIZER - Generates optimized sequences of browser tool calls
-
-⚡ HOW IT WORKS:
-1. You run browser_snapshot first to understand the page
-2. You call browser_multitool with the snapshot and your intent
-3. It returns a plan of tool calls
-4. You execute the plan with browser_execute_plan
-
-📊 BENEFITS:
-• 70-90% fewer tokens than manual tool calls
-• Intelligent element detection from snapshots
-• Clean, reusable plans
-• No duplicate DOM logic
-
-🎨 SUPPORTED PATTERNS:
-• login - Username/password authentication
-• form_fill - Fill and submit forms
-• search - Enter queries and wait for results
-• dismiss_modal - Close popups and modals
-• navigation - Multi-step navigation sequences`,
+    description: `AI pattern recognizer that drafts optimized action plans from goals`,
     inputSchema: zodToJsonSchema(paramsSchema) as any
   },
   

@@ -22,7 +22,7 @@ const DebuggerGetDataSchema = z.object({
 export const browser_debugger_attach: Tool = {
   schema: {
     name: "browser_debugger_attach",
-    description: "Attach debugger to current tab to enable monitoring of console, network, and performance",
+    description: "Attach Chrome DevTools Protocol session",
     inputSchema: zodToJsonSchema(DebuggerAttachSchema),
   },
   handle: async (context, params) => {
@@ -46,7 +46,7 @@ export const browser_debugger_attach: Tool = {
 export const browser_debugger_detach: Tool = {
   schema: {
     name: "browser_debugger_detach",
-    description: "Detach debugger from current tab",
+    description: "Detach current DevTools session, flush buffers",
     inputSchema: zodToJsonSchema(z.object({})),
   },
   handle: async (context) => {
@@ -67,7 +67,7 @@ export const browser_debugger_detach: Tool = {
 export const browser_debugger_get_data: Tool = {
   schema: {
     name: "browser_debugger_get_data",
-    description: "Get collected debug data (console logs, network requests, performance metrics, or errors)",
+    description: "Get captured network, coverage, or custom CDP data",
     inputSchema: zodToJsonSchema(DebuggerGetDataSchema),
   },
   handle: async (context, params) => {

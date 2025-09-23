@@ -23,7 +23,7 @@ export const GoForwardTool = z.object({
 
 export const PressKeyTool = z.object({
   name: z.literal("browser_press_key"),
-  description: z.literal("Press a key on the keyboard"),
+  description: z.literal("Send single keyboard key (e.g., Tab, Escape, ArrowDown) to page"),
   arguments: z.object({
     key: z.string().describe("Name of the key to press or a character to generate, such as `ArrowLeft` or `a`"),
   }),
@@ -31,7 +31,7 @@ export const PressKeyTool = z.object({
 
 export const WaitTool = z.object({
   name: z.literal("browser_wait"),
-  description: z.literal("Wait for a specified time in seconds"),
+  description: z.literal("Sleep fixed seconds; no page checks performed"),
   arguments: z.object({
     time: z.number().describe("The time to wait in seconds"),
   }),
@@ -40,7 +40,7 @@ export const WaitTool = z.object({
 // Custom tools
 export const GetConsoleLogsTool = z.object({
   name: z.literal("browser_get_console_logs"),
-  description: z.literal("Get ALL console logs from browser including early errors before debugger. Auto-captures ENTIRE history from page load. Use filter='text' to search, type='error'|'log'|'warn' to filter by level, limit=N for last N entries. Examples: type='error' for errors only, filter='failed' for failures, filter='ERROR' type='error' for specific errors."),
+  description: z.literal("Return console logs (level, message, ts) since last fetch"),
   arguments: z.object({
     filter: z.string().optional().describe("Filter logs by text content (case-insensitive)"),
     type: z.enum(['log', 'error', 'warn', 'info', 'debug']).optional().describe("Filter by log type"),
@@ -50,7 +50,7 @@ export const GetConsoleLogsTool = z.object({
 
 export const ScreenshotTool = z.object({
   name: z.literal("browser_screenshot"),
-  description: z.literal("Capture page screenshot with adjustable quality/size. For Codex CLI/limited context: use quality='low', maxWidth=800, format='jpeg', jpegQuality=60. For detailed analysis: use quality='high', format='png'. Use captureMode='fullpage' for entire page height. Viewport capture is faster and smaller than full page."),
+  description: z.literal("Capture PNG of viewport, full page or specific selector"),
   arguments: z.object({
     // Quality presets
     quality: z.enum(['high', 'high-medium', 'medium-plus', 'medium', 'low', 'ultra-low']).optional().default('medium')
@@ -116,7 +116,7 @@ export const ScreenshotTool = z.object({
 // Snapshot tools
 export const SnapshotTool = z.object({
   name: z.literal("browser_snapshot"),
-  description: z.literal("Capture accessibility snapshot of the current page. Use this for getting references to elements to interact with. If elements missing, try browser_execute_js for dynamic content."),
+  description: z.literal("Return full page accessibility tree JSON (role, name, bounds, hierarchy)"),
   arguments: z.object({
     level: z.enum(['minimal', 'scaffold']).optional().describe("Snapshot detail level. 'minimal' shows only interactive elements (default), 'scaffold' shows ultra-compact view"),
     viewportOnly: z.boolean().optional().describe("Only include elements in viewport (default: true)"),
@@ -126,7 +126,7 @@ export const SnapshotTool = z.object({
 
 export const ClickTool = z.object({
   name: z.literal("browser_click"),
-  description: z.literal("Perform click on a web page. If click fails, use browser_execute_js to debug element state or try alternative selectors."),
+  description: z.literal("Click element by selector/ref; waits for click-target to exist"),
   arguments: z.object({
     ref: z.string().describe("Exact target element reference from the page snapshot"),
     element: z.string().describe("Human-readable element description used to obtain permission to interact with the element"),
@@ -144,7 +144,7 @@ export const HoverTool = z.object({
 
 export const TypeTool = z.object({
   name: z.literal("browser_type"),
-  description: z.literal("Type text into editable element with optional Enter key. For input failures, use browser_get_console_logs and browser_execute_js to check element properties."),
+  description: z.literal("Type string into target or focused field; submit=true adds Enter key"),
   arguments: z.object({
     ref: z.string().optional().describe("Exact target element reference from the page snapshot (optional if using selector)"),
     selector: z.string().optional().describe("CSS selector for the input element (alternative to ref)"),

@@ -181,8 +181,8 @@ export const browserWaitForDomStable: Tool = {
 // Combined wait tool - wait for multiple conditions
 export const browserWaitForReady: Tool = {
   schema: {
-  name: 'browser_wait_for_ready',
-  description: 'Universal wait tool - wait for elements, DOM stability, network idle, or custom conditions. Can wait for a single selector string or multiple complex conditions.',
+  name: 'browser_wait_until',
+  description: 'Wait for selector, DOM stability, network-idle, or JS condition timeout',
   inputSchema: {
     type: 'object',
     properties: {
