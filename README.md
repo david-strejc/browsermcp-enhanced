@@ -1,10 +1,19 @@
+<div align="center">
+  <img src="https://wpdistro.cz/laskobot-mascot.jpg" alt="Láskobot Mascot" width="200"/>
+</div>
+
 # BrowserMCP Enhanced 🚀
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/david-strejc/browsermcp-enhanced/releases)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
+<div align="center">
 
-Enhanced MCP server for browser automation with advanced JavaScript execution, intelligent element selection, and comprehensive debugging capabilities.
+  **v1.5.0 - Codename: Láskobot**
+
+  [![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/david-strejc/browsermcp-enhanced/releases)
+  [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+  [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
+</div>
+
+Enhanced MCP server for browser automation with simplified tools, advanced JavaScript execution, and comprehensive debugging capabilities.
 
 ## ✨ Features
 
