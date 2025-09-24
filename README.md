@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://wpdistro.cz/laskobot-mascot.jpg" alt="Láskobot Mascot" width="200"/>
+  <img src="https://wpdistro.cz/laskobot-mascot.jpg" alt="Láskobot Mascot" width="600"/>
 </div>
 
 # BrowserMCP Enhanced 🚀
