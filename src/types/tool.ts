@@ -50,8 +50,28 @@ export const GetConsoleLogsTool = z.object({
 
 export const ScreenshotTool = z.object({
   name: z.literal("browser_screenshot"),
-  description: z.literal("Capture PNG of viewport, full page or specific selector"),
+  description: z.literal("Capture screenshot with resolution presets or custom dimensions"),
   arguments: z.object({
+    // Resolution presets - NEW!
+    resolution: z.enum([
+      'viewport',   // Current visible area
+      'fullpage',   // Entire page height
+      'fullhd',     // 1920x1080 from top-left
+      '4k',         // 3840x2160 from top-left
+      'mobile',     // 375x812 (iPhone)
+      'tablet',     // 768x1024 (iPad)
+      'desktop',    // 1920x1200
+      'square',     // 1080x1080 (social media)
+      'custom'      // Use customWidth/customHeight
+    ]).optional().default('viewport')
+      .describe("Resolution preset for screenshot dimensions and cropping"),
+
+    // Custom dimensions (when resolution='custom')
+    customWidth: z.number().min(100).max(7680).optional()
+      .describe("Custom width in pixels when resolution='custom'"),
+    customHeight: z.number().min(100).max(4320).optional()
+      .describe("Custom height in pixels when resolution='custom'"),
+
     // Quality presets
     quality: z.enum(['high', 'high-medium', 'medium-plus', 'medium', 'low', 'ultra-low']).optional().default('medium')
       .describe("Quality preset: 'high'=original, 'high-medium'=1920px, 'medium-plus'=1440px, 'medium'=1024px, 'low'=800px, 'ultra-low'=512px"),
@@ -78,9 +98,9 @@ export const ScreenshotTool = z.object({
     jpegQuality: z.number().min(10).max(100).optional()
       .describe("JPEG quality (10-100). Lower = smaller file. Only for JPEG format. 60-70 good for context-limited"),
 
-    // Capture area
-    captureMode: z.enum(['viewport', 'fullpage', 'region']).optional().default('viewport')
-      .describe("'viewport'=visible area only (fastest/smallest), 'fullpage'=entire page height (auto-scrolls), 'region'=specific area"),
+    // Capture area (deprecated - use resolution instead)
+    captureMode: z.enum(['viewport', 'fullpage', 'region']).optional()
+      .describe("DEPRECATED: Use 'resolution' parameter instead. Kept for backward compatibility"),
 
     // Full page configuration
     fullPageScrollDelay: z.number().min(100).max(2000).optional().default(500)

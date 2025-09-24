@@ -158,13 +158,74 @@ export const screenshot: Tool = {
     // Parse parameters with defaults
     const args = ScreenshotTool.shape.arguments.parse(params || {});
 
+    // Handle resolution presets
+    let captureMode = args.captureMode || 'viewport';
+    let targetWidth: number | undefined;
+    let targetHeight: number | undefined;
+    let cropFromTop = false;
+
+    // Map resolution to captureMode and dimensions
+    switch (args.resolution) {
+      case 'fullpage':
+        captureMode = 'fullpage';
+        break;
+      case 'fullhd':
+        captureMode = 'region';
+        targetWidth = 1920;
+        targetHeight = 1080;
+        cropFromTop = true;
+        break;
+      case '4k':
+        captureMode = 'region';
+        targetWidth = 3840;
+        targetHeight = 2160;
+        cropFromTop = true;
+        break;
+      case 'mobile':
+        captureMode = 'region';
+        targetWidth = 375;
+        targetHeight = 812;
+        cropFromTop = true;
+        break;
+      case 'tablet':
+        captureMode = 'region';
+        targetWidth = 768;
+        targetHeight = 1024;
+        cropFromTop = true;
+        break;
+      case 'desktop':
+        captureMode = 'region';
+        targetWidth = 1920;
+        targetHeight = 1200;
+        cropFromTop = true;
+        break;
+      case 'square':
+        captureMode = 'region';
+        targetWidth = 1080;
+        targetHeight = 1080;
+        cropFromTop = true;
+        break;
+      case 'custom':
+        if (args.customWidth && args.customHeight) {
+          captureMode = 'region';
+          targetWidth = args.customWidth;
+          targetHeight = args.customHeight;
+          cropFromTop = true;
+        }
+        break;
+      case 'viewport':
+      default:
+        captureMode = 'viewport';
+        break;
+    }
+
     // Check if this is a Claude Code request and apply auto full-page if configured
     const isClaudeCode = context.clientInfo?.name?.includes('Claude') ||
                         context.clientInfo?.name?.includes('claude');
 
-    if (isClaudeCode && config.claudeCode.autoFullPage && !params?.captureMode) {
+    if (isClaudeCode && config.claudeCode.autoFullPage && args.resolution === 'viewport') {
       console.log('Auto-enabling full page mode for Claude Code request');
-      args.captureMode = 'fullpage';
+      captureMode = 'fullpage';
       // Apply Claude-specific defaults if not specified
       if (!params?.quality) args.quality = config.claudeCode.defaultQuality;
       if (!params?.format) args.format = config.claudeCode.defaultFormat;
@@ -231,13 +292,18 @@ export const screenshot: Tool = {
 
     // Build screenshot options to send to extension
     const screenshotOptions = {
-      captureMode: args.captureMode,
+      captureMode: captureMode,
       format: args.format,
       quality: effectiveJpegQuality,
       maxWidth: effectiveMaxWidth,
       maxHeight: args.maxHeight,
       scaleFactor: args.scaleFactor,
-      region: args.region,
+      region: cropFromTop && targetWidth && targetHeight ? {
+        x: 0,
+        y: 0,
+        width: targetWidth,
+        height: targetHeight
+      } : args.region,
       grayscale: args.grayscale,
       blur: args.blur,
       removeBackground: args.removeBackground,
@@ -245,6 +311,8 @@ export const screenshot: Tool = {
       targetSizeKB: args.targetSizeKB,
       fullPageScrollDelay: args.fullPageScrollDelay,
       fullPageMaxHeight: args.fullPageMaxHeight,
+      // Pass resolution info for logging
+      resolutionPreset: args.resolution,
     };
 
     // Send screenshot request with options
@@ -446,8 +514,18 @@ export const screenshot: Tool = {
       }
     ];
 
+    // Add resolution info and compression details
+    let resolutionInfo = '';
+    if (args.resolution !== 'viewport') {
+      resolutionInfo = `[Resolution: ${args.resolution}`;
+      if (targetWidth && targetHeight) {
+        resolutionInfo += ` (${targetWidth}x${targetHeight})`;
+      }
+      resolutionInfo += ']';
+    }
+
     // Add compression and audit info as a separate text block if present
-    const infoText = [compressionInfo, auditInfo].filter(Boolean).join('\n');
+    const infoText = [resolutionInfo, compressionInfo, auditInfo].filter(Boolean).join('\n');
     if (infoText) {
       content.push({
         type: "text",
