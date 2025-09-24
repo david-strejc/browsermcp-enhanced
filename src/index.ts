@@ -7,15 +7,19 @@ import { program } from "commander";
 
 import type { Resource } from "./resources/resource";
 import { createServerWithTools } from "./server";
-import * as common from "./tools/common";
+// import * as common from "./tools/common";  // Using unified navigation instead
+import { browser_navigate } from "./tools/navigation-unified";
+import { pressKey, wait } from "./tools/common";
 import * as custom from "./tools/custom";
 import * as snapshot from "./tools/snapshot";
-import * as tabs from "./tools/tabs";
+// import * as tabs from "./tools/tabs";  // Using unified tab tool instead
+import { browser_tab } from "./tools/tabs-unified";
 import { debuggerTools } from "./tools/debugger";
 import { executeJS, commonOperations } from "./tools/code-execution";
 import { fileUploadTools } from "./tools/file-upload";
-import { browser_multitool_v3 } from "./tools/multitool-v3";
-import { browser_execute_plan } from "./tools/execute-plan";
+// Commented out orchestration tools for simplification
+// import { browser_multitool_v3 } from "./tools/multitool-v3";
+// import { browser_execute_plan } from "./tools/execute-plan";
 import { browser_save_hint, browser_get_hints } from "./hints/index";
 import type { Tool } from "./tools/tool";
 
@@ -46,15 +50,12 @@ function setupExitWatchdog(server: Server) {
   });
 }
 
-const commonTools: Tool[] = [common.pressKey, common.wait];
+const commonTools: Tool[] = [pressKey, wait];
 
 const customTools: Tool[] = [custom.getConsoleLogs, custom.screenshot];
 
 const tabTools: Tool[] = [
-  tabs.browser_tab_list,
-  tabs.browser_tab_select,
-  tabs.browser_tab_new,
-  tabs.browser_tab_close,
+  browser_tab,  // Unified tab tool with actions: list, select, new, close
 ];
 
 const scaffoldTools: Tool[] = [];
@@ -91,11 +92,9 @@ const stabilityTools: Tool[] = [
 ];
 
 const snapshotTools: Tool[] = [
-  browser_multitool_v3,  // New recipe generator multitool
-  browser_execute_plan,  // Plan executor
-  common.navigate(true),  // Enhanced with optional snapshot parameter
-  common.goBack(true),
-  common.goForward(true),
+  // browser_multitool_v3,  // Commented out: recipe generator multitool
+  // browser_execute_plan,  // Commented out: plan executor
+  browser_navigate,  // Unified navigation: goto, back, forward, refresh
   snapshot.snapshot,
   snapshot.click,
   snapshot.hover,
