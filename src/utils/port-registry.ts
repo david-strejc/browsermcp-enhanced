@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { isPortInUse } from './port';
+import crypto from 'crypto';
 
 const REGISTRY_FILE = '/tmp/browsermcp-ports.json';
 const PORT_RANGE_START = 8765;
@@ -27,7 +28,10 @@ export class PortRegistryManager {
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.instanceId = process.env.MCP_INSTANCE_ID || uuidv4();
+    // Generate unique instance ID using process ID and random bytes to prevent collisions
+    const pid = process.pid.toString();
+    const randomBytes = crypto.randomBytes(8).toString('hex');
+    this.instanceId = process.env.MCP_INSTANCE_ID || `${pid}-${randomBytes}-${Date.now()}`;
   }
 
   private async acquireLock(): Promise<void> {

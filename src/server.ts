@@ -10,6 +10,7 @@ import { Context } from "./context";
 import type { Resource } from "./resources/resource";
 import type { Tool } from "./tools/tool";
 import { createWebSocketServer } from "./ws";
+import { PortRegistryManager } from "./utils/port-registry";
 
 type Options = {
   name: string;
@@ -44,10 +45,8 @@ export async function createServerWithTools(options: Options): Promise<Server> {
   context.port = port;
 
   wss.on("connection", (websocket) => {
-    // Close any existing connections
-    if (context.hasWs()) {
-      context.ws.close();
-    }
+    // Multi-instance support: each connection gets its own context
+    // Don't close existing connections - allow multiple Claude instances
     context.ws = websocket;
 
     // Send hello handshake with instance ID
@@ -60,6 +59,23 @@ export async function createServerWithTools(options: Options): Promise<Server> {
             instanceId: instanceId,
             port: port
           }));
+          return;
+        }
+
+        if (msg.type === 'portListRequest') {
+          PortRegistryManager.getActiveInstances().then((instances) => {
+            websocket.send(JSON.stringify({
+              type: 'portListResponse',
+              ports: instances.map((entry) => entry.port)
+            }));
+          }).catch((err) => {
+            websocket.send(JSON.stringify({
+              type: 'portListResponse',
+              ports: [],
+              error: err instanceof Error ? err.message : String(err)
+            }));
+          });
+          return;
         }
       } catch (err) {
         // Not a hello message, ignore for this handler
