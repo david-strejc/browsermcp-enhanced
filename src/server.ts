@@ -21,14 +21,14 @@ type Options = {
 export async function createServerWithTools(options: Options): Promise<Server> {
   const { name, version, tools, resources } = options;
   const context = new Context();
-  
+
   // Build toolbox for inter-tool invocation
   const toolbox: Record<string, Tool> = {};
   for (const tool of tools) {
     toolbox[tool.schema.name] = tool;
   }
   context.toolbox = toolbox;
-  
+
   const server = new Server(
     { name, version },
     {
@@ -39,13 +39,32 @@ export async function createServerWithTools(options: Options): Promise<Server> {
     },
   );
 
-  const wss = await createWebSocketServer();
+  const { server: wss, port, instanceId } = await createWebSocketServer();
+  context.instanceId = instanceId;
+  context.port = port;
+
   wss.on("connection", (websocket) => {
     // Close any existing connections
     if (context.hasWs()) {
       context.ws.close();
     }
     context.ws = websocket;
+
+    // Send hello handshake with instance ID
+    websocket.on('message', (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'hello' && msg.wants === 'instanceId') {
+          websocket.send(JSON.stringify({
+            type: 'helloAck',
+            instanceId: instanceId,
+            port: port
+          }));
+        }
+      } catch (err) {
+        // Not a hello message, ignore for this handler
+      }
+    });
   });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {

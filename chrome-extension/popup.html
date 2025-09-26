@@ -4,40 +4,185 @@
   <meta charset="utf-8">
   <style>
     body {
-      width: 300px;
-      padding: 10px;
-      font-family: Arial, sans-serif;
+      width: 350px;
+      padding: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
     }
     h3 {
       margin-top: 0;
+      color: #333;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 10px;
     }
     .status {
       padding: 10px;
       border-radius: 5px;
-      margin-bottom: 10px;
+      margin-bottom: 15px;
+      font-weight: 500;
     }
     .connected {
       background-color: #d4edda;
       color: #155724;
+      border: 1px solid #c3e6cb;
     }
     .disconnected {
       background-color: #f8d7da;
       color: #721c24;
+      border: 1px solid #f5c6cb;
+    }
+    .multi-instance {
+      background-color: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    .instances-list {
+      max-height: 150px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 5px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .instance-item {
+      padding: 3px 5px;
+      border-bottom: 1px solid #eee;
+    }
+    .instance-item:last-child {
+      border-bottom: none;
+    }
+    .port-badge {
+      background: #007bff;
+      color: white;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 11px;
+      margin-left: 5px;
     }
     button {
       width: 100%;
-      padding: 8px;
+      padding: 10px;
       margin-top: 5px;
       cursor: pointer;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .settings {
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 1px solid #ddd;
+    }
+    .setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .setting-label {
+      font-size: 14px;
+      color: #555;
+    }
+    .toggle {
+      position: relative;
+      width: 50px;
+      height: 24px;
+    }
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .3s;
+      border-radius: 24px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #007bff;
+    }
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+    .warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+      padding: 8px;
+      border-radius: 5px;
+      font-size: 12px;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
   <h3>BrowserMCP Enhanced</h3>
+
   <div id="status" class="status disconnected">
-    Disconnected
+    Checking connection...
   </div>
-  <button id="connect">Connect</button>
+
+  <div id="instances-container" style="display: none;">
+    <strong>Active Instances:</strong>
+    <div id="instances-list" class="instances-list">
+      No instances connected
+    </div>
+  </div>
+
+  <button id="connect">Connect Current Tab</button>
+
+  <div class="settings">
+    <div class="setting-item">
+      <span class="setting-label">Multi-Instance Mode</span>
+      <label class="toggle">
+        <input type="checkbox" id="multi-instance-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting-item">
+      <span class="setting-label">Unsafe Mode</span>
+      <label class="toggle">
+        <input type="checkbox" id="unsafe-mode-toggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div id="multi-instance-warning" class="warning" style="display: none;">
+    ⚠️ Multi-instance mode is experimental. Restart the extension after toggling for changes to take effect.
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

@@ -26,6 +26,8 @@ export class Context {
   private _connectionAttempts: number = 0;
   private _lastConnectionTime: number | undefined;
   private _toolbox: Record<string, Tool> = {};
+  public instanceId: string = '';
+  public port: number = 0;
 
   get ws(): WebSocket {
     if (!this._ws) {
