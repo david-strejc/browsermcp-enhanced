@@ -569,12 +569,43 @@
         case 'browser_tab':
           handlerKey = 'tabs.' + (payload && payload.action ? payload.action : 'list');
           break;
+        case 'snapshot.accessibility':
+          // Keep the same handler key - it's registered in messageHandlers
+          handlerKey = 'snapshot.accessibility';
+          break;
+        case 'js.execute':
+          handlerKey = 'js.execute';
+          break;
+        case 'dom.click':
+        case 'dom.hover':
+        case 'dom.type':
+        case 'dom.select':
+        case 'dom.expand':
+        case 'dom.query':
+        case 'keyboard.press':
+        case 'browser_press_key':
+        case 'page.wait':
+        case 'browser_wait':
+        case 'console.get':
+        case 'snapshot.query':
+        case 'debugger.attach':
+        case 'debugger.detach':
+        case 'debugger.getData':
+        case 'browser_screenshot':
+        case 'screenshot.capture':
+        case 'browser_click_popup':
+          // All these handlers are registered with same name
+          handlerKey = message.type;
+          break;
       }
     }
 
     var handler = this.messageHandlers && this.messageHandlers.get(handlerKey);
     if (!handler) {
       warn('No handler for message type ' + message.type + ' from instance ' + instanceId);
+      console.log('[DEBUG] Looking for handler key:', handlerKey);
+      console.log('[DEBUG] Available handlers:', this.messageHandlers ? Array.from(this.messageHandlers.keys()) : 'No handlers');
+      console.log('[DEBUG] Original message type:', message.type);
       if (message.id) {
         instance.ws.send(JSON.stringify({
           id: message.id,
