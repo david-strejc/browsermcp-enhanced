@@ -14,8 +14,10 @@ import * as custom from "./tools/custom";
 import * as snapshot from "./tools/snapshot";
 // import * as tabs from "./tools/tabs";  // Using unified tab tool instead
 import { browser_tab } from "./tools/tabs-unified";
-import { debuggerTools } from "./tools/debugger";
-import { executeJS, commonOperations } from "./tools/code-execution";
+// import { debuggerTools } from "./tools/debugger";  // Using unified debugger tool instead
+import { browser_debugger } from "./tools/debugger-unified";
+import { executeJS } from "./tools/code-execution";
+// import { commonOperations } from "./tools/code-execution";  // Commented out commonOperations
 import { fileUploadTools } from "./tools/file-upload";
 // Commented out orchestration tools for simplification
 // import { browser_multitool_v3 } from "./tools/multitool-v3";
@@ -26,19 +28,11 @@ import type { Tool } from "./tools/tool";
 // Consolidated enhanced tools
 import {
   browserScroll,
-  browserQuery,  // Now includes collect_links and extract_data functionality
-  browserGetHtml,  // Now includes inner/outer HTML with flag
-  browserFillForm,
-  browserDismissOverlays
+  browserQuery,  // Universal HTML extraction tool (attrs, links, schema, inner/outer HTML)
+  browserFillForm
 } from "./tools/safe-mode-enhanced";
 
-import {
-  browserFetchHead  // Keep for HEAD request verification
-} from "./tools/batch-operations";
-
-import {
-  browserWaitForReady  // Universal wait tool - combines DOM, network, element waits
-} from "./tools/stability-tools";
+// Removed browserFetchHead and browserWaitForReady tools
 
 import packageJSON from "../package.json";
 
@@ -62,7 +56,7 @@ const scaffoldTools: Tool[] = [];
 
 const codeExecutionTools: Tool[] = [
   executeJS,
-  commonOperations,
+  // commonOperations,  // Commented out common operation tool
 ];
 
 const hintTools: Tool[] = [
@@ -75,21 +69,13 @@ const helperTools: Tool[] = [];
 // Consolidated enhanced tools
 const safeModeEnhancedTools: Tool[] = [
   browserScroll,
-  browserQuery,  // Universal query tool (simple/links/schema modes)
-  browserGetHtml,  // Universal HTML getter (inner/outer)
+  browserQuery,  // Universal HTML/query tool (attrs, links, schema, HTML)
   browserFillForm,
-  browserDismissOverlays,
 ];
 
-// Batch operation tools (minimal set)
-const batchOperationTools: Tool[] = [
-  browserFetchHead,  // Keep for HEAD request verification
-];
-
-// Stability tools (unified)
-const stabilityTools: Tool[] = [
-  browserWaitForReady,  // Universal wait tool
-];
+// Removed batch operation and stability tools
+const batchOperationTools: Tool[] = [];
+const stabilityTools: Tool[] = [];
 
 const snapshotTools: Tool[] = [
   // browser_multitool_v3,  // Commented out: recipe generator multitool
@@ -103,7 +89,7 @@ const snapshotTools: Tool[] = [
   ...commonTools,
   ...customTools,
   ...tabTools,
-  ...debuggerTools,
+  browser_debugger,  // Unified debugger tool with actions: attach, detach, get_data
   ...scaffoldTools,
   ...codeExecutionTools,
   ...fileUploadTools,

@@ -173,14 +173,14 @@ export const browserWaitFor: Tool = {
 export const browserQuery: Tool = {
   schema: {
     name: 'browser_extract_html',
-    description: 'Extract HTML attrs/text, collect links, or use schema-based data extraction',
+    description: 'Extract HTML content, attributes, collect links, or schema-based extraction',
     inputSchema: {
       type: 'object',
       properties: {
         mode: {
           type: 'string',
-          enum: ['simple', 'links', 'schema'],
-          description: 'Query mode: simple (extract attributes), links (collect links), schema (structured extraction)',
+          enum: ['simple', 'links', 'schema', 'html'],
+          description: 'Query mode: simple (attrs), links (collect), schema (structured), html (inner/outer HTML)',
           default: 'simple'
         },
         selector: {
@@ -233,6 +233,11 @@ export const browserQuery: Tool = {
           type: 'boolean',
           description: 'Include hidden elements',
           default: false
+        },
+        outer: {
+          type: 'boolean',
+          description: 'HTML mode: Get outer HTML (includes element) vs inner HTML',
+          default: false
         }
       },
       required: ['selector']
@@ -249,12 +254,18 @@ export const browserQuery: Tool = {
       exclude = [],
       unique = true,
       limit = 100,
-      includeHidden = false
+      includeHidden = false,
+      outer = false
     } = params;
 
     let code = '';
 
-    if (mode === 'links') {
+    if (mode === 'html') {
+      // HTML extraction mode
+      code = outer
+        ? `return api.getOuterHTML('${selector}');`
+        : `return api.getHTML('${selector}');`;
+    } else if (mode === 'links') {
       // Links collection mode
       code = `
         const container = document.querySelector('${selector || 'body'}');
@@ -389,7 +400,9 @@ export const browserQuery: Tool = {
   }
 };
 
-// Get HTML content (merged inner/outer)
+// Get HTML content (merged into browserQuery with mode='html')
+// Commented out - functionality moved to browserQuery
+/*
 export const browserGetHtml: Tool = {
   schema: {
     name: 'browser_get_html',
@@ -439,6 +452,7 @@ export const browserGetHtml: Tool = {
     }
   }
 };
+*/
 
 // Fill form tool
 export const browserFillForm: Tool = {
@@ -486,7 +500,8 @@ export const browserFillForm: Tool = {
   }
 };
 
-// Dismiss overlays tool
+// Dismiss overlays tool - REMOVED as requested
+/*
 export const browserDismissOverlays: Tool = {
   schema: {
     name: 'browser_dismiss_overlays',
@@ -526,3 +541,4 @@ export const browserDismissOverlays: Tool = {
     }
   }
 };
+*/
