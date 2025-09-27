@@ -138,7 +138,7 @@ function connectToMCP() {
   };
   
   ws.onerror = (event) => {
-    console.error('WebSocket error:', event);
+    error('WebSocket error:', event);
     updateIcon(false);
   };
 }
