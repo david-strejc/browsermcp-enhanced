@@ -137,8 +137,8 @@ function connectToMCP() {
     reconnectTimer = setTimeout(connectToMCP, 2000);
   };
   
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
+  ws.onerror = (event) => {
+    error('WebSocket error:', event);
     updateIcon(false);
   };
 }
