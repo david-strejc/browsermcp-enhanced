@@ -416,22 +416,28 @@
 
       // ENHANCEMENT: Check if current lock is stale (held for >60 seconds)
       self.tabLockTimestamps = self.tabLockTimestamps || new Map();
-      var lockAge = Date.now() - (self.tabLockTimestamps.get(tabId) || Date.now());
-      if (lockAge > 60000) {
-        warn('Detected stale lock on tab ' + tabId + ' held by ' + currentLock + ' (age: ' + lockAge + 'ms)');
+      var lockTimestamp = self.tabLockTimestamps.get(tabId);
 
-        // Verify the lock holder still exists and is connected
-        var lockHolder = self.instances.get(currentLock);
-        if (!lockHolder || lockHolder.ws.readyState !== WebSocket.OPEN) {
-          warn('Force-releasing stale lock from disconnected instance ' + currentLock);
-          self.releaseTabLock(tabId, currentLock);
+      // Only check for stale locks if we have a timestamp
+      // Missing timestamp means lock was recently acquired (before timestamp tracking)
+      if (lockTimestamp) {
+        var lockAge = Date.now() - lockTimestamp;
+        if (lockAge > 60000) {
+          warn('Detected stale lock on tab ' + tabId + ' held by ' + currentLock + ' (age: ' + lockAge + 'ms)');
 
-          // Now acquire the lock
-          self.tabLocks.set(tabId, instanceId);
-          self.tabLockTimestamps.set(tabId, Date.now());
-          log('Instance ' + instanceId + ' acquired lock for tab ' + tabId + ' (forced from stale)');
-          resolve(true);
-          return;
+          // Verify the lock holder still exists and is connected
+          var lockHolder = self.instances.get(currentLock);
+          if (!lockHolder || lockHolder.ws.readyState !== WebSocket.OPEN) {
+            warn('Force-releasing stale lock from disconnected instance ' + currentLock);
+            self.releaseTabLock(tabId, currentLock);
+
+            // Now acquire the lock
+            self.tabLocks.set(tabId, instanceId);
+            self.tabLockTimestamps.set(tabId, Date.now());
+            log('Instance ' + instanceId + ' acquired lock for tab ' + tabId + ' (forced from stale)');
+            resolve(true);
+            return;
+          }
         }
       }
 
