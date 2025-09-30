@@ -32,6 +32,9 @@
     // Tab locks: tabId -> instanceId
     this.tabLocks = new Map();
 
+    // Reverse index: instanceId -> Set<tabId> (for O(M) cleanup on disconnect)
+    this.instanceTabs = new Map();
+
     // Tab lock timestamps: tabId -> timestamp (for deadlock detection)
     this.tabLockTimestamps = new Map();
 
@@ -272,12 +275,17 @@
         finishInstanceCleanup();
 
         function finishInstanceCleanup() {
-          // Release any other tab locks held by this instance
-          self.tabLocks.forEach(function(lockInstanceId, tabId) {
-            if (lockInstanceId === instanceId) {
+          // Release any tab locks held by this instance
+          // OPTIMIZATION: O(M) using reverse index, where M = tabs for THIS instance
+          // (was O(N) traversing ALL locks across ALL instances)
+          var tabsForInstance = self.instanceTabs.get(instanceId);
+          if (tabsForInstance) {
+            // Convert Set to Array to avoid modification during iteration
+            var tabIds = Array.from(tabsForInstance);
+            tabIds.forEach(function(tabId) {
               self.releaseTabLock(tabId, instanceId);
-            }
-          });
+            });
+          }
 
           // Now remove the instance
           self.instances.delete(instanceId);
@@ -401,6 +409,13 @@
         self.tabLocks.set(tabId, instanceId);
         self.tabLockTimestamps = self.tabLockTimestamps || new Map();
         self.tabLockTimestamps.set(tabId, Date.now());
+
+        // Update reverse index for O(M) cleanup
+        if (!self.instanceTabs.has(instanceId)) {
+          self.instanceTabs.set(instanceId, new Set());
+        }
+        self.instanceTabs.get(instanceId).add(tabId);
+
         log('Instance ' + instanceId + ' acquired lock for tab ' + tabId);
         resolve(true);
         return;
@@ -434,6 +449,13 @@
             // Now acquire the lock
             self.tabLocks.set(tabId, instanceId);
             self.tabLockTimestamps.set(tabId, Date.now());
+
+            // Update reverse index for O(M) cleanup
+            if (!self.instanceTabs.has(instanceId)) {
+              self.instanceTabs.set(instanceId, new Set());
+            }
+            self.instanceTabs.get(instanceId).add(tabId);
+
             log('Instance ' + instanceId + ' acquired lock for tab ' + tabId + ' (forced from stale)');
             resolve(true);
             return;
@@ -505,6 +527,15 @@
     // Clean up timestamp tracking
     this.tabLockTimestamps = this.tabLockTimestamps || new Map();
     this.tabLockTimestamps.delete(tabId);
+
+    // Update reverse index for O(M) cleanup
+    var instanceTabSet = this.instanceTabs.get(instanceId);
+    if (instanceTabSet) {
+      instanceTabSet.delete(tabId);
+      if (instanceTabSet.size === 0) {
+        this.instanceTabs.delete(instanceId);
+      }
+    }
 
     log('Instance ' + instanceId + ' released lock for tab ' + tabId);
 
