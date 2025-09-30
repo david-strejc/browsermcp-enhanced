@@ -19,6 +19,40 @@
     multiInstance: true
   };
 
+  // SECURITY: Allowlist for MAIN world code execution
+  // Only these patterns are permitted when unsafe mode is enabled
+  const MAIN_WORLD_SAFE_PATTERNS = [
+    /^window\.location\.href$/,
+    /^window\.location\.\w+$/,
+    /^document\.title$/,
+    /^document\.readyState$/,
+    /^document\.URL$/,
+    /^navigator\.userAgent$/,
+    /^document\.querySelector\(['"][^'"]*['"]\)$/,
+    /^document\.querySelectorAll\(['"][^'"]*['"]\)$/,
+    /^document\.getElementById\(['"][^'"]*['"]\)$/
+  ];
+
+  // Validate code for MAIN world execution
+  function validateMainWorldCode(code) {
+    if (!code || typeof code !== 'string') {
+      return false;
+    }
+
+    var trimmed = code.trim();
+
+    // Check against safe patterns
+    for (var i = 0; i < MAIN_WORLD_SAFE_PATTERNS.length; i++) {
+      if (MAIN_WORLD_SAFE_PATTERNS[i].test(trimmed)) {
+        return true;
+      }
+    }
+
+    // Reject by default
+    warn('Rejected MAIN world code execution:', trimmed);
+    return false;
+  }
+
   // Store listener references so we can remove them later
   const listeners = {
     onMessage: null,
@@ -1090,6 +1124,14 @@
 
       if (unsafe && !extensionConfig.unsafeMode) {
         return Promise.reject(new Error('Unsafe mode not enabled'));
+      }
+
+      // SECURITY: Validate MAIN world code execution
+      if (unsafe && !validateMainWorldCode(code)) {
+        return Promise.reject(new Error(
+          'Code execution rejected: not in MAIN world allowlist. ' +
+          'Only read-only property access and safe selectors are permitted.'
+        ));
       }
 
       return ensureActiveTab(null, instanceId).then(function(tabId) {

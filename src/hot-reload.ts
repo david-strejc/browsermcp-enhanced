@@ -35,12 +35,45 @@ const DEFAULT_OPTIONS: Required<HotReloadOptions> = {
   verbose: true
 };
 
+// SECURITY: Deploy path configuration with validation
+const DEPLOY_BASE_PATH = process.env.BROWSERMCP_DEPLOY_PATH ||
+                         '/home/david/.local/lib/browsermcp-enhanced';
+
 let isReloading = false;
 let debounceTimer: NodeJS.Timeout | null = null;
 let watcher: fs.FSWatcher | null = null;
 
 function log(message: string, ...args: any[]) {
   console.error(`[HotReload] ${message}`, ...args);
+}
+
+/**
+ * Validate deploy path to prevent directory traversal
+ * Only the exact configured path is allowed
+ */
+function validateDeployPath(deployPath: string): boolean {
+  try {
+    const resolved = path.resolve(deployPath);
+    const allowed = path.resolve(DEPLOY_BASE_PATH);
+
+    // Must be exact match (prevent traversal attacks)
+    if (resolved !== allowed) {
+      log(`ERROR: Invalid deploy path. Expected: ${allowed}, Got: ${resolved}`);
+      return false;
+    }
+
+    // Verify path exists and is a directory
+    const stats = fs.statSync(resolved);
+    if (!stats.isDirectory()) {
+      log(`ERROR: Deploy path is not a directory: ${resolved}`);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    log(`ERROR: Deploy path validation failed:`, err);
+    return false;
+  }
 }
 
 function triggerBuildAndReload(options: Required<HotReloadOptions>) {
@@ -63,8 +96,16 @@ function triggerBuildAndReload(options: Required<HotReloadOptions>) {
     if (code === 0) {
       if (options.verbose) log('Build successful! Copying to deployed location...');
 
-      // Copy dist and package.json to deployed location
-      const deployProcess = spawn('bash', ['-c', 'cp -r dist/* /home/david/.local/lib/browsermcp-enhanced/dist/ && cp package.json /home/david/.local/lib/browsermcp-enhanced/'], {
+      // SECURITY: Validate deploy path before copying
+      if (!validateDeployPath(DEPLOY_BASE_PATH)) {
+        log('ERROR: Deploy path validation failed, aborting hot-reload');
+        isReloading = false;
+        return;
+      }
+
+      // Copy dist and package.json to validated deploy location
+      const deployCmd = `cp -r dist/* ${DEPLOY_BASE_PATH}/dist/ && cp package.json ${DEPLOY_BASE_PATH}/`;
+      const deployProcess = spawn('bash', ['-c', deployCmd], {
         stdio: 'inherit',
         shell: true, // Required for bash -c command
         cwd: path.join(options.watchPath, '..')
