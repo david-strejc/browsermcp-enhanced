@@ -33,7 +33,7 @@ interface SendMessageOptions {
 // Sleep utility for retries
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export function createSocketMessageSender<TMap>(ws: WebSocket) {
+export function createSocketMessageSender<TMap>(ws: WebSocket, instanceId?: string) {
   const sendSocketMessage = async <T extends MessageType<TMap>>(
     type: T,
     payload: MessagePayload<TMap, T>,
@@ -50,10 +50,10 @@ export function createSocketMessageSender<TMap>(ws: WebSocket) {
     } = options;
 
     let lastError: Error;
-    
+
     for (let attempt = 0; attempt <= retry.maxRetries; attempt++) {
       try {
-        return await sendSingleMessage<T, TMap>(ws, type, payload, { timeoutMs });
+        return await sendSingleMessage<T, TMap>(ws, type, payload, { timeoutMs, instanceId });
       } catch (error) {
         lastError = error as Error;
         
@@ -95,11 +95,17 @@ async function sendSingleMessage<T extends MessageType<TMap>, TMap>(
   ws: WebSocket,
   type: T,
   payload: MessagePayload<TMap, T>,
-  options: { timeoutMs: number }
+  options: { timeoutMs: number; instanceId?: string }
 ): Promise<MessageResponse<TMap, T>> {
   return new Promise((resolve, reject) => {
     const id = ++messageId;
-    const message = JSON.stringify({ id, type, payload });
+    // Include instanceId in the message if provided
+    const message = JSON.stringify({
+      id,
+      type,
+      payload,
+      instanceId: options.instanceId // Add instanceId to message
+    });
     
     // Check WebSocket state before sending
     if (ws.readyState !== WebSocket.OPEN) {

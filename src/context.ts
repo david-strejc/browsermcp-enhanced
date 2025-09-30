@@ -97,8 +97,9 @@ export class Context {
 
     const { sendSocketMessage } = createSocketMessageSender<SocketMessageMap>(
       this.ws,
+      this.instanceId // Pass instanceId to the sender
     );
-    
+
     try {
       return await sendSocketMessage(type, payload, enhancedOptions);
     } catch (e) {

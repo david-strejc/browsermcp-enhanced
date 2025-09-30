@@ -6,6 +6,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// Hot-reload test #5: Extension tabs now PRESERVED during hot-reload!
 import { Context } from "./context";
 import type { Resource } from "./resources/resource";
 import type { Tool } from "./tools/tool";
@@ -21,14 +22,12 @@ type Options = {
 
 export async function createServerWithTools(options: Options): Promise<Server> {
   const { name, version, tools, resources } = options;
-  const context = new Context();
 
-  // Build toolbox for inter-tool invocation
+  // Build toolbox for inter-tool invocation (shared across all connections)
   const toolbox: Record<string, Tool> = {};
   for (const tool of tools) {
     toolbox[tool.schema.name] = tool;
   }
-  context.toolbox = toolbox;
 
   const server = new Server(
     { name, version },
@@ -41,13 +40,45 @@ export async function createServerWithTools(options: Options): Promise<Server> {
   );
 
   const { server: wss, port, instanceId } = await createWebSocketServer();
-  context.instanceId = instanceId;
-  context.port = port;
+
+  // CRITICAL FIX: Track current active context
+  // Since each MCP server instance (port) handles ONE Claude connection at a time,
+  // we track the current active context and replace it when a new connection arrives
+  let currentContext: Context | null = null;
+  const contextMap = new Map<WebSocket, Context>();
 
   wss.on("connection", (websocket) => {
-    // Multi-instance support: each connection gets its own context
-    // Don't close existing connections - allow multiple Claude instances
-    context.ws = websocket;
+    // CRITICAL FIX: Create a NEW context for EACH connection
+    // This ensures proper instance isolation - no shared state!
+    const connectionContext = new Context();
+    connectionContext.ws = websocket;
+    connectionContext.instanceId = instanceId;
+    connectionContext.port = port;
+    connectionContext.toolbox = toolbox;
+
+    // Store context mapping
+    contextMap.set(websocket, connectionContext);
+    currentContext = connectionContext; // Update current active context
+
+    console.log(`[BrowserMCP] New connection established, context ID: ${instanceId}, contexts active: ${contextMap.size}`);
+
+    // Cleanup on disconnect
+    websocket.on('close', () => {
+      console.log(`[BrowserMCP] Connection closed, cleaning up context for ${instanceId}`);
+      const ctx = contextMap.get(websocket);
+      if (ctx) {
+        ctx.close().catch((err) => {
+          console.warn('[BrowserMCP] Error during context cleanup:', err);
+        });
+        contextMap.delete(websocket);
+
+        // Clear current context if this was the active one
+        if (currentContext === ctx) {
+          currentContext = null;
+        }
+      }
+      console.log(`[BrowserMCP] Contexts remaining: ${contextMap.size}`);
+    });
 
     // Send hello handshake with instance ID
     websocket.on('message', (data) => {
@@ -102,8 +133,16 @@ export async function createServerWithTools(options: Options): Promise<Server> {
       };
     }
 
+    // Use current active context for this request
+    if (!currentContext) {
+      return {
+        content: [{ type: "text", text: "No active connection context" }],
+        isError: true,
+      };
+    }
+
     try {
-      const raw = await tool.handle(context, request.params.arguments) as any;
+      const raw = await tool.handle(currentContext, request.params.arguments) as any;
 
       // If tool already returned proper MCP ToolResult, pass it through
       if (raw && Array.isArray(raw.content)) {
@@ -151,7 +190,12 @@ export async function createServerWithTools(options: Options): Promise<Server> {
       return { contents: [] };
     }
 
-    const contents = await resource.read(context, request.params.uri);
+    // Use current active context for this request
+    if (!currentContext) {
+      return { contents: [] };
+    }
+
+    const contents = await resource.read(currentContext, request.params.uri);
     return { contents };
   });
 
@@ -159,7 +203,15 @@ export async function createServerWithTools(options: Options): Promise<Server> {
   server.close = async () => {
     await originalClose();
     await wss.close();
-    await context.close();
+
+    // Close all active contexts
+    for (const ctx of contextMap.values()) {
+      await ctx.close().catch(err => {
+        console.warn('[BrowserMCP] Error closing context during server shutdown:', err);
+      });
+    }
+    contextMap.clear();
+    currentContext = null;
   };
 
   return server;

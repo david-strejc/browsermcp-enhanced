@@ -1,6 +1,6 @@
 {
   "name": "@browsermcp/mcp-enhanced",
-  "version": "1.14.0",
+  "version": "1.20.4",
   "description": "Enhanced MCP server for browser automation with improved element selection, tab management, debugging capabilities, and token optimization",
   "author": "BrowserMCP Enhanced Contributors",
   "homepage": "https://github.com/browsermcp/mcp-enhanced",
@@ -23,26 +23,30 @@
   ],
   "type": "module",
   "bin": {
-    "mcp-server-browsermcp-enhanced": "dist/index.js"
+    "mcp-server-browsermcp-enhanced": "dist/index.js",
+    "mcp-server-browsermcp-enhanced-http": "dist/index-http.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsup src/index.ts --format esm && shx chmod +x dist/*.js",
+    "build": "tsup src/index.ts src/index-http.ts --format esm && shx chmod +x dist/*.js",
     "prepare": "npm run build",
-    "watch": "tsup src/index.ts --format esm --watch ",
+    "watch": "tsup src/index.ts src/index-http.ts --format esm --watch ",
     "inspector": "CLIENT_PORT=9001 SERVER_PORT=9002 pnpx @modelcontextprotocol/inspector node dist/index.js",
     "test": "node test-runner.js",
     "test:quick": "node test-runner.js --quick",
     "test:server": "python3 test-server.py",
     "test:coverage": "node test-runner.js --coverage",
     "dev": "npm run watch",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "start:http": "node dist/index-http.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
     "@modelcontextprotocol/sdk": "^1.8.0",
+    "@supabase/supabase-js": "^2.58.0",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.2.0",
     "commander": "^13.1.0",
@@ -54,6 +58,7 @@
   },
   "devDependencies": {
     "@types/ws": "^8.18.0",
+    "dotenv": "^17.2.2",
     "shx": "^0.3.4",
     "tsup": "^8.4.0",
     "typescript": "^5.6.2"

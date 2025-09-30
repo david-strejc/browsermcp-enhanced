@@ -77,36 +77,194 @@
     return null;
   }
 
-  function ensureActiveTab(url) {
-    return new Promise(function(resolve, reject) {
-      if (typeof activeTabId === 'number') {
-        resolve(activeTabId);
-        return;
-      }
+  // Get the active tab for a specific instance
+  function getInstanceActiveTab(instanceId) {
+    if (!multiInstanceManager || !instanceId) return activeTabId; // Fallback to global
+    var instance = multiInstanceManager.instances.get(instanceId);
+    return instance ? instance.activeTabId : activeTabId;
+  }
 
-      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        if (handleRuntimeError(reject)) {
-          return;
+  // Set the active tab for a specific instance
+  function setInstanceActiveTab(instanceId, tabId) {
+    if (!multiInstanceManager || !instanceId) {
+      activeTabId = tabId; // Fallback to global
+      return;
+    }
+    var instance = multiInstanceManager.instances.get(instanceId);
+    if (instance) {
+      instance.activeTabId = tabId;
+      instance.tabs.add(tabId);
+    }
+    // Always reflect the most recent tab interaction globally so legacy helpers stay in sync
+    activeTabId = tabId;
+  }
+
+  /************************************************************
+   *  ────────────────────────────────────────────────────────
+   *  Helper utilities for robust tab isolation
+   *  ────────────────────────────────────────────────────────
+   ************************************************************/
+
+  /**
+   * Returns the instance object, creating an empty shell if needed.
+   */
+  function getOrCreateInstance(instanceId) {
+    if (!multiInstanceManager.instances.has(instanceId)) {
+      multiInstanceManager.instances.set(instanceId, {
+        ws: null,
+        port: null,
+        activeTabId: undefined,
+        tabs: new Set()
+      });
+    }
+    return multiInstanceManager.instances.get(instanceId);
+  }
+
+  /**
+   * Records that a tab is owned by – and the active tab of – an instance.
+   */
+  function markTabForInstance(tabId, instanceId) {
+    var inst = getOrCreateInstance(instanceId);
+    inst.activeTabId = tabId;
+    inst.tabs.add(tabId);
+    setInstanceActiveTab(instanceId, tabId);            // existing helper
+  }
+
+  /**
+   * Predicate: does instanceId still own tabId?
+   */
+  function instanceOwnsTab(instanceId, tabId) {
+    var inst = multiInstanceManager.instances.get(instanceId);
+    return !!(inst && inst.tabs.has(tabId));
+  }
+
+  /**
+   * Clean up tabs when an instance disconnects
+   * CRITICAL FIX: Synchronize tab closure with lock release to prevent races
+   */
+  function cleanupInstanceTabs(instanceId) {
+    var inst = multiInstanceManager.instances.get(instanceId);
+    if (!inst) return;
+
+    var tabIds = Array.from(inst.tabs);
+    var tabsToClose = [];
+
+    // Phase 1: Collect tabs and verify they exist
+    tabIds.forEach(function(tabId) {
+      chrome.tabs.get(tabId, function(tab) {
+        if (!chrome.runtime.lastError && tab) {
+          tabsToClose.push(tabId);
+        } else {
+          // Tab already gone, just release the lock
+          log('Tab ' + tabId + ' already closed, releasing lock only');
+          multiInstanceManager.releaseTabLock(tabId, instanceId);
         }
+      });
+    });
 
-        if (tabs && tabs.length > 0) {
-          activeTabId = tabs[0].id;
-          resolve(activeTabId);
-          return;
-        }
-
-        chrome.tabs.create({ url: url || 'about:blank', active: true }, function(tab) {
-          if (handleRuntimeError(reject)) {
-            return;
+    // Phase 2: Close all tabs synchronously (queued operations)
+    // This ensures tabs are fully processed before locks are released
+    var closePromises = tabsToClose.map(function(tabId) {
+      return new Promise(function(resolve) {
+        chrome.tabs.remove(tabId, function() {
+          if (chrome.runtime.lastError) {
+            log('Tab ' + tabId + ' close error:', chrome.runtime.lastError.message);
           }
-          if (tab && typeof tab.id === 'number') {
-            activeTabId = tab.id;
-            resolve(activeTabId);
-          } else {
-            reject(new Error('Failed to create tab for navigation'));
-          }
+          // CRITICAL: Release lock AFTER tab removal completes
+          multiInstanceManager.releaseTabLock(tabId, instanceId);
+          log('Tab ' + tabId + ' closed and lock released for instance ' + instanceId);
+          resolve();
         });
       });
+    });
+
+    // Phase 3: Wait for all closures to complete before clearing instance data
+    Promise.all(closePromises).then(function() {
+      inst.tabs.clear();
+      inst.activeTabId = null;
+      log('Instance ' + instanceId + ' tab cleanup complete');
+    }).catch(function(err) {
+      error('Tab cleanup error for instance ' + instanceId + ':', err);
+      // Even on error, clear instance data to prevent leaks
+      inst.tabs.clear();
+      inst.activeTabId = null;
+    });
+  }
+
+  /************************************************************
+   *  ────────────────────────────────────────────────────────
+   *  ensureActiveTab (COMPLETELY REWRITTEN for tab isolation)
+   *  ────────────────────────────────────────────────────────
+   ************************************************************/
+  function ensureActiveTab(targetUrl, instanceId) {
+    return new Promise(function(resolve, reject) {
+      var instance = getOrCreateInstance(instanceId);
+      var existingId = instance.activeTabId;
+
+      /**
+       * Actually create a brand-new tab and lock it.
+       */
+      function createFreshTab() {
+        chrome.tabs.create(
+          { url: targetUrl || 'about:blank', active: true },
+          function(tab) {
+            if (chrome.runtime.lastError || !tab) {
+              reject(
+                chrome.runtime.lastError ||
+                  new Error('Unable to create new tab for instance ' + instanceId)
+              );
+              return;
+            }
+            // Acquire lock for the new tab
+            multiInstanceManager.acquireTabLock(tab.id, instanceId)
+              .then(function() {
+                markTabForInstance(tab.id, instanceId);
+                log('Created new tab ' + tab.id + ' for instance ' + instanceId);
+                resolve(tab.id);
+              })
+              .catch(function(err) {
+                // Failed to acquire lock - shouldn't happen for new tab
+                reject(err);
+              });
+          }
+        );
+      }
+
+      /* ----------------------------------------------------
+       * 1️⃣  If the instance already tracks a tab, reuse it
+       *     only if  (a)  the tab still exists
+       *     AND     (b)  the lock can be (re)acquired.
+       * -------------------------------------------------- */
+      if (typeof existingId === 'number' && instanceOwnsTab(instanceId, existingId)) {
+        chrome.tabs.get(existingId, function(tabObj) {
+          if (chrome.runtime.lastError || !tabObj) {
+            // Tab vanished – fall through to fresh creation
+            log('Previous tab ' + existingId + ' no longer exists, creating new one');
+            return createFreshTab();
+          }
+
+          // Try to acquire lock for existing tab
+          multiInstanceManager.acquireTabLock(existingId, instanceId)
+            .then(function() {
+              // Lock OK → safe to reuse
+              markTabForInstance(existingId, instanceId);
+              log('Reusing existing tab ' + existingId + ' for instance ' + instanceId);
+              resolve(existingId);
+            })
+            .catch(function() {
+              // Someone else owns lock → isolate the instance with a new tab
+              log('Tab ' + existingId + ' locked by another instance, creating new one');
+              createFreshTab();
+            });
+        });
+        return; // Important – don't run the code below.
+      }
+
+      /* ----------------------------------------------------
+       * 2️⃣  No usable tab -> always create a new one
+       * -------------------------------------------------- */
+      log('No existing tab for instance ' + instanceId + ', creating new one');
+      createFreshTab();
     });
   }
 
@@ -164,6 +322,35 @@
       });
     }
 
+    function resolveTabByIndex(index, windowId) {
+      return new Promise(function(resolve, reject) {
+        chrome.tabs.query(windowId ? { windowId: windowId } : {}, function(tabs) {
+          if (handleRuntimeError(reject)) {
+            return;
+          }
+          var target = tabs.find(function(tab) {
+            return tab.index === index && (typeof windowId !== 'number' || tab.windowId === windowId);
+          });
+          if (target) {
+            resolve(target);
+          } else {
+            reject(new Error('No tab found at index ' + index));
+          }
+        });
+      });
+    }
+
+    function getTabById(tabId) {
+      return new Promise(function(resolve, reject) {
+        chrome.tabs.get(tabId, function(tab) {
+          if (handleRuntimeError(reject)) {
+            return;
+          }
+          resolve(tab);
+        });
+      });
+    }
+
     messageHandlers.set('tabs.list', function () {
       return new Promise(function (resolve, reject) {
         chrome.tabs.query({}, function (tabs) {
@@ -174,6 +361,7 @@
             return {
               id: tab.id,
               windowId: tab.windowId,
+              index: tab.index,
               url: tab.url,
               title: tab.title,
               active: tab.active,
@@ -185,23 +373,52 @@
       });
     });
 
-    messageHandlers.set('tabs.select', function (payload) {
-      var tabId = normalizeTabId(payload && payload.tabId);
-      if (tabId === null) {
-        return Promise.reject(new Error('tabs.select requires a valid tabId'));
+    messageHandlers.set('tabs.select', function (payload, instanceId) {
+      var explicitTabId = normalizeTabId(payload && payload.tabId);
+      var index = typeof payload !== 'undefined' && typeof payload.index === 'number' ? payload.index : null;
+      var windowId = payload && typeof payload.windowId === 'number' ? payload.windowId : undefined;
+
+      var tabPromise;
+      if (explicitTabId !== null) {
+        tabPromise = getTabById(explicitTabId).then(function(tab) {
+          return { tabId: explicitTabId, tab: tab };
+        });
+      } else if (index !== null) {
+        tabPromise = resolveTabByIndex(index, windowId).then(function(tab) {
+          return { tabId: tab.id, tab: tab };
+        });
+      } else {
+        return Promise.reject(new Error('tabs.select requires a valid tabId or index'));
       }
-      return new Promise(function (resolve, reject) {
-        chrome.tabs.update(tabId, { active: true }, function (tab) {
-          if (handleRuntimeError(reject)) {
-            return;
-          }
-          activeTabId = tab && tab.id ? tab.id : tabId;
-          resolve({ success: true, tabId: activeTabId });
+
+      return tabPromise.then(function(result) {
+        var tabId = result.tabId;
+
+        var ensureLock = Promise.resolve();
+        if (instanceId && multiInstanceManager) {
+          ensureLock = multiInstanceManager.acquireTabLock(tabId, instanceId);
+        }
+
+        return ensureLock.then(function() {
+          return new Promise(function(resolve, reject) {
+            chrome.tabs.update(tabId, { active: true }, function(tab) {
+              if (handleRuntimeError(reject)) {
+                return;
+              }
+              var selectedTabId = tab && tab.id ? tab.id : tabId;
+              setInstanceActiveTab(instanceId, selectedTabId);
+              resolve({
+                success: true,
+                tabId: selectedTabId,
+                index: tab && typeof tab.index === 'number' ? tab.index : index
+              });
+            });
+          });
         });
       });
     });
 
-    messageHandlers.set('tabs.new', function (payload) {
+    messageHandlers.set('tabs.new', function (payload, instanceId) {
       var createOptions = { url: (payload && payload.url) || 'about:blank', active: true };
       if (payload && payload.windowId) {
         createOptions.windowId = payload.windowId;
@@ -211,26 +428,74 @@
           if (handleRuntimeError(reject)) {
             return;
           }
-          activeTabId = tab && tab.id ? tab.id : null;
-          resolve({ success: true, tabId: activeTabId });
+          if (!tab || typeof tab.id !== 'number') {
+            reject(new Error('Failed to create tab'));
+            return;
+          }
+
+          var newTabId = tab.id;
+          var finalize = function() {
+            setInstanceActiveTab(instanceId, newTabId);
+            resolve({ success: true, tabId: newTabId, index: tab.index });
+          };
+
+          if (instanceId && multiInstanceManager) {
+            multiInstanceManager.acquireTabLock(newTabId, instanceId)
+              .then(function() {
+                finalize();
+              })
+              .catch(reject);
+          } else {
+            finalize();
+          }
         });
       });
     });
 
-    messageHandlers.set('tabs.close', function (payload) {
-      var tabId = normalizeTabId(payload && payload.tabId);
-      if (tabId === null) {
-        return Promise.reject(new Error('tabs.close requires a valid tabId'));
+    messageHandlers.set('tabs.close', function (payload, instanceId) {
+      var explicitTabId = normalizeTabId(payload && payload.tabId);
+      var index = typeof payload !== 'undefined' && typeof payload.index === 'number' ? payload.index : null;
+      var windowId = payload && typeof payload.windowId === 'number' ? payload.windowId : undefined;
+
+      var tabPromise;
+      if (explicitTabId !== null) {
+        tabPromise = Promise.resolve(explicitTabId);
+      } else if (index !== null) {
+        tabPromise = resolveTabByIndex(index, windowId).then(function(tab) {
+          return tab.id;
+        });
+      } else if (instanceId) {
+        tabPromise = ensureActiveTab(null, instanceId);
+      } else {
+        tabPromise = Promise.reject(new Error('tabs.close requires a valid tabId or index'));
       }
-      return new Promise(function (resolve, reject) {
-        chrome.tabs.remove(tabId, function () {
-          if (handleRuntimeError(reject)) {
-            return;
-          }
-          if (activeTabId === tabId) {
-            activeTabId = null;
-          }
-          resolve({ success: true });
+
+      return tabPromise.then(function(tabId) {
+        return new Promise(function(resolve, reject) {
+          chrome.tabs.remove(tabId, function () {
+            if (handleRuntimeError(reject)) {
+              return;
+            }
+            if (activeTabId === tabId) {
+              activeTabId = null;
+            }
+
+            if (multiInstanceManager) {
+              multiInstanceManager.instances.forEach(function(instance) {
+                if (instance.tabs && instance.tabs.has(tabId)) {
+                  instance.tabs.delete(tabId);
+                  if (instance.activeTabId === tabId) {
+                    instance.activeTabId = null;
+                  }
+                }
+              });
+
+              var ownerId = multiInstanceManager.tabLocks.get(tabId);
+              multiInstanceManager.releaseTabLock(tabId, ownerId);
+            }
+
+            resolve({ success: true });
+          });
         });
       });
     });
@@ -267,54 +532,122 @@
       });
     });
 
-    messageHandlers.set('browser_navigate', function (payload) {
+    /************************************************************
+     *  ────────────────────────────────────────────────────────
+     *  browser_navigate message handler (with tab locking)
+     *  ────────────────────────────────────────────────────────
+     ************************************************************/
+    messageHandlers.set('browser_navigate', function (payload, instanceId) {
       var targetUrl = payload && payload.url;
       var detectPopups = !payload || payload.detectPopups !== false;
+      var snapshot = !payload || payload.snapshot !== false; // Default to true
 
       if (!targetUrl) {
         return Promise.reject(new Error('browser_navigate requires a url'));
       }
 
-      return ensureActiveTab(targetUrl).then(function(tabId) {
-        return new Promise(function(resolve, reject) {
-          chrome.tabs.update(tabId, { url: targetUrl, active: true }, function(tab) {
-            if (handleRuntimeError(reject)) {
-              return;
-            }
-
-            var updatedTabId = tab && typeof tab.id === 'number' ? tab.id : tabId;
-            activeTabId = updatedTabId;
-
-            waitForTabComplete(updatedTabId).then(function() {
-              if (detectPopups) {
-                detectPopupsInTab(updatedTabId).then(function(result) {
-                  resolve(result || {});
-                }).catch(function(err) {
-                  warn('Popup detection failed:', err);
-                  resolve({});
-                });
-              } else {
-                resolve({});
+      return ensureActiveTab(targetUrl, instanceId).then(function(tabId) {
+        // Double-check we have the lock (defensive programming)
+        return multiInstanceManager.acquireTabLock(tabId, instanceId).then(function() {
+          return new Promise(function(resolve, reject) {
+            chrome.tabs.update(tabId, { url: targetUrl, active: true }, function(tab) {
+              if (handleRuntimeError(reject)) {
+                return;
               }
-            }).catch(function(err) {
-              warn('waitForTabComplete error:', err);
-              resolve({});
+
+              var updatedTabId = tab && typeof tab.id === 'number' ? tab.id : tabId;
+              markTabForInstance(updatedTabId, instanceId);
+
+              waitForTabComplete(updatedTabId).then(function() {
+                var result = {};
+
+                // First detect popups if enabled
+                var popupPromise = detectPopups ?
+                  detectPopupsInTab(updatedTabId).catch(function(err) {
+                    warn('Popup detection failed:', err);
+                    return {};
+                  }) : Promise.resolve({});
+
+                popupPromise.then(function(popupResult) {
+                  // Then get scaffold snapshot if requested (default)
+                  if (snapshot) {
+                    var snapshotHandler = messageHandlers.get('snapshot.accessibility');
+                    if (snapshotHandler) {
+                      return snapshotHandler({ mode: 'scaffold' }, instanceId);
+                    }
+                    return {};
+                  }
+                  return {};
+                }).then(function(snapshotResult) {
+                  // Combine results
+                  Object.assign(result, popupResult || {});
+                  if (snapshotResult && snapshotResult.snapshot) {
+                    result.snapshot = snapshotResult.snapshot;
+                  }
+                  // Add debug info to response
+                  result._debug = {
+                    instanceId: instanceId,
+                    tabId: updatedTabId,
+                    timestamp: new Date().toISOString()
+                  };
+                  log('Navigation complete for instance ' + instanceId + ' on tab ' + updatedTabId);
+                  resolve(result);
+                }).catch(function(err) {
+                  warn('Navigation completion error:', err);
+                  resolve(result);
+                });
+              }).catch(function(err) {
+                warn('waitForTabComplete error:', err);
+                resolve({});
+              });
+            });
+          });
+        }).catch(function(lockErr) {
+          // Could not secure the tab → fallback to a new dedicated tab
+          log('Failed to acquire lock for tab ' + tabId + ', creating new tab');
+          return new Promise(function(resolve, reject) {
+            chrome.tabs.create({ url: targetUrl, active: true }, function(newTab) {
+              if (chrome.runtime.lastError || !newTab) {
+                reject(
+                  chrome.runtime.lastError ||
+                    new Error('Unable to create fallback tab for navigate')
+                );
+                return;
+              }
+              multiInstanceManager.acquireTabLock(newTab.id, instanceId)
+                .then(function() {
+                  markTabForInstance(newTab.id, instanceId);
+                  waitForTabComplete(newTab.id).then(function() {
+                    resolve({
+                      ok: true,
+                      _debug: {
+                        instanceId: instanceId,
+                        tabId: newTab.id,
+                        timestamp: new Date().toISOString(),
+                        fallback: true
+                      }
+                    });
+                  });
+                })
+                .catch(reject);
             });
           });
         });
       });
     });
 
-    messageHandlers.set('browser_go_back', function () {
-      return ensureActiveTab().then(function(tabId) {
+    messageHandlers.set('browser_go_back', function (payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
         return new Promise(function(resolve, reject) {
           chrome.tabs.goBack(tabId, function () {
             if (handleRuntimeError(reject)) {
               return;
             }
             waitForTabComplete(tabId).then(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({});
             }).catch(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({});
             });
           });
@@ -322,16 +655,18 @@
       });
     });
 
-    messageHandlers.set('browser_go_forward', function () {
-      return ensureActiveTab().then(function(tabId) {
+    messageHandlers.set('browser_go_forward', function (payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
         return new Promise(function(resolve, reject) {
           chrome.tabs.goForward(tabId, function () {
             if (handleRuntimeError(reject)) {
               return;
             }
             waitForTabComplete(tabId).then(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({});
             }).catch(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({});
             });
           });
@@ -339,16 +674,18 @@
       });
     });
 
-    messageHandlers.set('browser_refresh', function () {
-      return ensureActiveTab().then(function(tabId) {
+    messageHandlers.set('browser_refresh', function (payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
         return new Promise(function(resolve, reject) {
           chrome.tabs.reload(tabId, {}, function () {
             if (handleRuntimeError(reject)) {
               return;
             }
             waitForTabComplete(tabId).then(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({ success: true });
             }).catch(function() {
+              setInstanceActiveTab(instanceId, tabId);
               resolve({ success: true });
             });
           });
@@ -356,105 +693,109 @@
       });
     });
 
-    messageHandlers.set('navigate', function (payload) {
+    messageHandlers.set('navigate', function (payload, instanceId) {
       var action = payload && payload.action;
       var targetTabId = normalizeTabId(payload && payload.tabId);
-      if (targetTabId === null) {
-        targetTabId = activeTabId;
+      var tabPromise;
+      if (targetTabId !== null) {
+        tabPromise = Promise.resolve(targetTabId);
+      } else if (instanceId) {
+        tabPromise = ensureActiveTab(null, instanceId);
+      } else if (activeTabId !== null) {
+        tabPromise = Promise.resolve(activeTabId);
+      } else {
+        tabPromise = Promise.reject(new Error('navigate requires an active tab'));
       }
-      if (targetTabId === null) {
-        return Promise.reject(new Error('navigate requires an active tab'));
-      }
-      return new Promise(function (resolve, reject) {
-        function done() {
-          if (handleRuntimeError(reject)) {
-            return;
-          }
-          resolve({ success: true });
-        }
-        if (action === 'goto') {
-          if (!payload || !payload.url) {
-            reject(new Error('navigate.goto requires a url'));
-            return;
-          }
-          chrome.tabs.update(targetTabId, { url: payload.url }, done);
-          return;
-        }
-        if (action === 'back') {
-          chrome.tabs.goBack(targetTabId, done);
-          return;
-        }
-        if (action === 'forward') {
-          chrome.tabs.goForward(targetTabId, done);
-          return;
-        }
-        if (action === 'refresh') {
-          chrome.tabs.reload(targetTabId, {}, done);
-          return;
-        }
-        reject(new Error('navigate action not supported: ' + action));
-      });
-    });
 
-    messageHandlers.set('screenshot', function (payload) {
-      var targetTabId = normalizeTabId(payload && payload.tabId);
-      var format = (payload && payload.format) || 'png';
-      var quality = typeof payload !== 'undefined' && typeof payload.quality === 'number' ? payload.quality : 100;
-      if (targetTabId === null) {
-        targetTabId = activeTabId;
-      }
-      if (targetTabId === null) {
-        return Promise.reject(new Error('screenshot requires an active tab'));
-      }
-      return new Promise(function (resolve, reject) {
-        chrome.tabs.get(targetTabId, function (tab) {
-          if (handleRuntimeError(reject)) {
-            return;
-          }
-          if (!tab) {
-            reject(new Error('Unable to locate tab ' + targetTabId));
-            return;
-          }
-          var windowId = tab.windowId;
-          function captureVisible() {
-            var options = { format: format };
-            if (format === 'jpeg') {
-              options.quality = Math.max(0, Math.min(quality, 100));
+      return tabPromise.then(function(resolvedTabId) {
+        return new Promise(function (resolve, reject) {
+          function done() {
+            if (handleRuntimeError(reject)) {
+              return;
             }
-            chrome.tabs.captureVisibleTab(windowId, options, function (dataUrl) {
-              if (handleRuntimeError(reject)) {
-                return;
-              }
-              resolve({ dataUrl: dataUrl });
-            });
+            resolve({ success: true });
           }
-          if (tab.active) {
-            captureVisible();
-          } else {
-            chrome.tabs.update(targetTabId, { active: true }, function () {
-              if (handleRuntimeError(reject)) {
-                return;
-              }
-              activeTabId = targetTabId;
-              captureVisible();
-            });
+          if (action === 'goto') {
+            if (!payload || !payload.url) {
+              reject(new Error('navigate.goto requires a url'));
+              return;
+            }
+            chrome.tabs.update(resolvedTabId, { url: payload.url }, done);
+            return;
           }
+          if (action === 'back') {
+            chrome.tabs.goBack(resolvedTabId, done);
+            return;
+          }
+          if (action === 'forward') {
+            chrome.tabs.goForward(resolvedTabId, done);
+            return;
+          }
+          if (action === 'refresh') {
+            chrome.tabs.reload(resolvedTabId, {}, done);
+            return;
+          }
+          reject(new Error('navigate action not supported: ' + action));
         });
       });
     });
 
-    // Add ALL missing handlers from legacy implementation
-    log('Before adding missing handlers, total handlers:', messageHandlers.size);
-    addMissingHandlersToMultiInstance();
-    log('After adding missing handlers, total handlers:', messageHandlers.size);
+    messageHandlers.set('screenshot', function (payload, instanceId) {
+      var targetTabId = normalizeTabId(payload && payload.tabId);
+      var format = (payload && payload.format) || 'png';
+      var quality = typeof payload !== 'undefined' && typeof payload.quality === 'number' ? payload.quality : 100;
 
-    log('Message handlers configured');
-  }
+      var tabPromise;
+      if (targetTabId !== null) {
+        tabPromise = Promise.resolve(targetTabId);
+      } else if (instanceId) {
+        tabPromise = ensureActiveTab(null, instanceId);
+      } else if (activeTabId !== null) {
+        tabPromise = Promise.resolve(activeTabId);
+      } else {
+        tabPromise = Promise.reject(new Error('screenshot requires an active tab'));
+      }
 
-  /**
-   * Add missing handlers from legacy implementation
-   */
-  function addMissingHandlersToMultiInstance() {
+      return tabPromise.then(function(resolvedTabId) {
+        return new Promise(function (resolve, reject) {
+          chrome.tabs.get(resolvedTabId, function (tab) {
+            if (handleRuntimeError(reject)) {
+              return;
+            }
+            if (!tab) {
+              reject(new Error('Unable to locate tab ' + resolvedTabId));
+              return;
+            }
+            var windowId = tab.windowId;
+            function captureVisible() {
+              var options = { format: format };
+              if (format === 'jpeg') {
+                options.quality = Math.max(0, Math.min(quality, 100));
+              }
+              chrome.tabs.captureVisibleTab(windowId, options, function (dataUrl) {
+                if (handleRuntimeError(reject)) {
+                  return;
+                }
+                resolve({ dataUrl: dataUrl });
+              });
+            }
+            if (tab.active) {
+              setInstanceActiveTab(instanceId, resolvedTabId);
+              captureVisible();
+            } else {
+              chrome.tabs.update(resolvedTabId, { active: true }, function () {
+                if (handleRuntimeError(reject)) {
+                  return;
+                }
+                setInstanceActiveTab(instanceId, resolvedTabId);
+                captureVisible();
+              });
+            }
+          });
+        });
+      });
+    });
+    
     // Helper function for captureAccessibilitySnapshot
     function captureAccessibilitySnapshot(options) {
       console.log('[PAGE] captureAccessibilitySnapshot called with options:', options);
@@ -510,75 +851,70 @@
       return elements;
     }
 
-    // snapshot.accessibility handler
-    messageHandlers.set('snapshot.accessibility', function(options) {
+    messageHandlers.set('snapshot.accessibility', function(options, instanceId) {
       log('[snapshot.accessibility] Handler called with options:', JSON.stringify(options || {}));
 
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
 
-        // Check if scripts are already injected
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function() { return typeof window.__elementTracker !== 'undefined'; }
         }).then(function(checkResult) {
-          // Inject scripts if not present
           if (!checkResult[0].result) {
             return chrome.scripting.executeScript({
-              target: { tabId: activeTabId },
+              target: { tabId: tabId },
               files: ['element-tracker.js', 'element-validator.js']
             });
           }
         }).then(function() {
-          // Handle scaffold mode
           if (options && options.mode === 'scaffold') {
             return chrome.scripting.executeScript({
-              target: { tabId: activeTabId },
+              target: { tabId: tabId },
               func: function() { return typeof window.captureEnhancedScaffoldSnapshot !== 'undefined'; }
             }).then(function(checkEnhanced) {
               if (!checkEnhanced[0].result) {
                 return chrome.scripting.executeScript({
-                  target: { tabId: activeTabId },
+                  target: { tabId: tabId },
                   files: ['scaffold-enhanced.js']
                 });
               }
             }).then(function() {
               return chrome.scripting.executeScript({
-                target: { tabId: activeTabId },
+                target: { tabId: tabId },
                 func: function() { return window.captureEnhancedScaffoldSnapshot(); }
               });
             }).then(function(result) {
-              return { snapshot: result[0].result };
+              return { snapshot: result[0].result, tabId: tabId };
             });
           }
 
-          // Handle minimal mode
           if (options && options.level === 'minimal') {
             log('[snapshot.accessibility] Minimal mode detected');
 
             return chrome.scripting.executeScript({
-              target: { tabId: activeTabId },
+              target: { tabId: tabId },
               func: function() { return typeof window.__elementTracker !== 'undefined'; }
             }).then(function(checkTracker) {
               if (!checkTracker[0].result) {
                 return chrome.scripting.executeScript({
-                  target: { tabId: activeTabId },
+                  target: { tabId: tabId },
                   files: ['element-tracker.js']
                 });
               }
             }).then(function() {
               return chrome.scripting.executeScript({
-                target: { tabId: activeTabId },
+                target: { tabId: tabId },
                 func: function() { return typeof window.captureEnhancedMinimalSnapshot !== 'undefined'; }
               });
             }).then(function(checkMinimal) {
               if (!checkMinimal[0].result) {
                 return chrome.scripting.executeScript({
-                  target: { tabId: activeTabId },
+                  target: { tabId: tabId },
                   files: ['accessibility-utils.js']
                 }).then(function() {
                   return chrome.scripting.executeScript({
-                    target: { tabId: activeTabId },
+                    target: { tabId: tabId },
                     files: ['minimal-enhanced.js']
                   });
                 });
@@ -586,48 +922,40 @@
             }).then(function() {
               var paginationOptions = {
                 page: (options && options.page) || 1,
-                pageHeight: options && options.pageHeight,
-                pageMode: (options && options.pageMode) || 'viewport'
+                perPage: (options && options.perPage) || 25,
+                level: 'minimal'
               };
-
               return chrome.scripting.executeScript({
-                target: { tabId: activeTabId },
-                func: function(paginationOpts) {
-                  if (typeof window.captureEnhancedMinimalSnapshot === 'function') {
-                    return window.captureEnhancedMinimalSnapshot(paginationOpts);
-                  }
-                  return 'ERROR: Enhanced minimal function not found';
-                },
+                target: { tabId: tabId },
+                func: function(opts) { return window.captureEnhancedMinimalSnapshot(opts); },
                 args: [paginationOptions]
               });
             }).then(function(result) {
-              return { snapshot: result[0].result };
+              return { snapshot: result[0].result, tabId: tabId };
             });
           }
 
-          // Standard capture mode
           log('[snapshot.accessibility] Standard capture mode');
           return chrome.scripting.executeScript({
-            target: { tabId: activeTabId },
+            target: { tabId: tabId },
             func: captureAccessibilitySnapshot,
             args: [options || {}]
           }).then(function(result) {
-            return { snapshot: result[0].result };
+            return { snapshot: result[0].result, tabId: tabId };
           });
         });
       });
     });
 
-    // Add remaining missing handlers
-    log('Adding remaining DOM, keyboard, and utility handlers...');
-
-    // dom.click handler
-    messageHandlers.set('dom.click', function(payload) {
+    messageHandlers.set('dom.click', function(payload, instanceId) {
       var ref = payload && payload.ref;
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!ref) {
+        return Promise.reject(new Error('dom.click requires a ref'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(ref) {
             var element = window.__elementTracker && window.__elementTracker.get(ref);
             if (element) {
@@ -643,13 +971,15 @@
       });
     });
 
-    // dom.hover handler
-    messageHandlers.set('dom.hover', function(payload) {
+    messageHandlers.set('dom.hover', function(payload, instanceId) {
       var ref = payload && payload.ref;
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!ref) {
+        return Promise.reject(new Error('dom.hover requires a ref'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(ref) {
             var element = window.__elementTracker && window.__elementTracker.get(ref);
             if (element) {
@@ -670,15 +1000,17 @@
       });
     });
 
-    // dom.type handler
-    messageHandlers.set('dom.type', function(payload) {
+    messageHandlers.set('dom.type', function(payload, instanceId) {
       var ref = payload && payload.ref;
       var text = payload && payload.text;
       var submit = payload && payload.submit;
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!ref) {
+        return Promise.reject(new Error('dom.type requires a ref'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(ref, text, submit) {
             var element = window.__elementTracker && window.__elementTracker.get(ref);
             if (element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
@@ -702,13 +1034,15 @@
       });
     });
 
-    // keyboard.press handler
-    messageHandlers.set('keyboard.press', function(payload) {
+    messageHandlers.set('keyboard.press', function(payload, instanceId) {
       var key = payload && payload.key;
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!key) {
+        return Promise.reject(new Error('keyboard.press requires a key'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(key) {
             document.dispatchEvent(new KeyboardEvent('keydown', {
               key: key,
@@ -728,12 +1062,10 @@
       });
     });
 
-    // browser_press_key handler (alias)
-    messageHandlers.set('browser_press_key', function(payload) {
-      return messageHandlers.get('keyboard.press')(payload);
+    messageHandlers.set('browser_press_key', function(payload, instanceId) {
+      return messageHandlers.get('keyboard.press')(payload, instanceId);
     });
 
-    // page.wait / browser_wait handlers
     messageHandlers.set('page.wait', function(payload) {
       var time = (payload && payload.time) || 1000;
       return new Promise(function(resolve) {
@@ -747,8 +1079,7 @@
       return messageHandlers.get('page.wait')(payload);
     });
 
-    // js.execute handler
-    messageHandlers.set('js.execute', function(payload) {
+    messageHandlers.set('js.execute', function(payload, instanceId) {
       var code = payload && payload.code;
       var unsafe = payload && payload.unsafe;
 
@@ -756,10 +1087,10 @@
         return Promise.reject(new Error('Unsafe mode not enabled'));
       }
 
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: new Function('return ' + code),
           world: unsafe ? 'MAIN' : 'ISOLATED'
         });
@@ -768,23 +1099,21 @@
       });
     });
 
-    // ADD REMAINING CRITICAL HANDLERS
-
-    // dom.select handler for dropdowns
-    messageHandlers.set('dom.select', function(payload) {
+    messageHandlers.set('dom.select', function(payload, instanceId) {
       var ref = payload && payload.ref;
-      var values = payload && payload.values;
+      var values = Array.isArray(payload && payload.values) ? payload.values : [];
+      if (!ref) {
+        return Promise.reject(new Error('dom.select requires a ref'));
+      }
 
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(ref, values) {
             var element = window.__elementTracker && window.__elementTracker.get(ref);
             if (element && element.tagName === 'SELECT') {
-              Array.from(element.options).forEach(function(option) {
-                option.selected = false;
-              });
+              Array.from(element.options).forEach(function(option) { option.selected = false; });
               values.forEach(function(value) {
                 var option = Array.from(element.options).find(function(opt) {
                   return opt.value === value || opt.text === value;
@@ -805,12 +1134,11 @@
       });
     });
 
-    // console.get handler
-    messageHandlers.set('console.get', function(payload) {
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+    messageHandlers.set('console.get', function(payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function() {
             return window.__consoleLogs || [];
           }
@@ -820,20 +1148,18 @@
       });
     });
 
-    // snapshot.query handler
-    messageHandlers.set('snapshot.query', function(payload) {
+    messageHandlers.set('snapshot.query', function(payload, instanceId) {
       var selector = payload && payload.selector;
       var all = payload && payload.all;
-
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!selector) {
+        return Promise.reject(new Error('snapshot.query requires a selector'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(selector, all) {
-            var elements = all ?
-              Array.from(document.querySelectorAll(selector)) :
-              [document.querySelector(selector)].filter(Boolean);
-
+            var elements = all ? Array.from(document.querySelectorAll(selector)) : [document.querySelector(selector)].filter(Boolean);
             return elements.map(function(el) {
               var rect = el.getBoundingClientRect();
               return {
@@ -855,10 +1181,9 @@
       });
     });
 
-    // debugger.attach handler
-    messageHandlers.set('debugger.attach', function(payload) {
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+    messageHandlers.set('debugger.attach', function(payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return new Promise(function(resolve, reject) {
           chrome.debugger.attach({ tabId: tabId }, "1.3", function() {
             if (chrome.runtime.lastError) {
@@ -871,10 +1196,9 @@
       });
     });
 
-    // debugger.detach handler
-    messageHandlers.set('debugger.detach', function() {
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+    messageHandlers.set('debugger.detach', function(payload, instanceId) {
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return new Promise(function(resolve, reject) {
           chrome.debugger.detach({ tabId: tabId }, function() {
             if (chrome.runtime.lastError) {
@@ -887,7 +1211,6 @@
       });
     });
 
-    // debugger.getData handler
     messageHandlers.set('debugger.getData', function(payload) {
       return Promise.resolve({
         type: payload && payload.type,
@@ -896,18 +1219,19 @@
       });
     });
 
-    // browser_screenshot with options
-    messageHandlers.set('browser_screenshot', function(payload) {
-      return messageHandlers.get('screenshot')(payload);
+    messageHandlers.set('browser_screenshot', function(payload, instanceId) {
+      return messageHandlers.get('screenshot')(payload, instanceId);
     });
 
-    // dom.expand handler
-    messageHandlers.set('dom.expand', function(payload) {
+    messageHandlers.set('dom.expand', function(payload, instanceId) {
       var ref = payload && payload.ref;
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      if (!ref) {
+        return Promise.reject(new Error('dom.expand requires a ref'));
+      }
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(ref) {
             var element = window.__elementTracker && window.__elementTracker.get(ref);
             if (element) {
@@ -923,15 +1247,13 @@
       });
     });
 
-    // dom.query handler
-    messageHandlers.set('dom.query', function(payload) {
+    messageHandlers.set('dom.query', function(payload, instanceId) {
       var selector = (payload && payload.selector) || '*';
       var limit = (payload && payload.limit) || 20;
-
-      return ensureActiveTab().then(function(tabId) {
-        activeTabId = tabId;
+      return ensureActiveTab(null, instanceId).then(function(tabId) {
+        setInstanceActiveTab(instanceId, tabId);
         return chrome.scripting.executeScript({
-          target: { tabId: activeTabId },
+          target: { tabId: tabId },
           func: function(selector, limit) {
             var elements = Array.from(document.querySelectorAll(selector)).slice(0, limit);
             return elements.map(function(el) {
@@ -950,10 +1272,7 @@
       });
     });
 
-    log('All missing handlers added successfully');
-
-    // Debug: Log all registered handlers
-    log('Registered handlers:', Array.from(messageHandlers.keys()));
+    log('Message handlers configured');
   }
 
   /**
@@ -976,7 +1295,7 @@
     // Handle directly if no instance specified
     if (message.type && messageHandlers.has(message.type)) {
       var handler = messageHandlers.get(message.type);
-      handler(message.payload || {}).then(function(result) {
+      handler(message.payload || {}, message.instanceId).then(function(result) {
         sendResponse(result);
       }).catch(function(err) {
         error('Message handler error:', err);
@@ -1006,6 +1325,17 @@
       log('Active tab closed');
     }
     if (multiInstanceManager) {
+      // Clean up from all instances that might own this tab
+      multiInstanceManager.instances.forEach(function(instance, instanceId) {
+        if (instance.tabs && instance.tabs.has(tabId)) {
+          instance.tabs.delete(tabId);
+          if (instance.activeTabId === tabId) {
+            instance.activeTabId = null;
+          }
+          log('Removed tab ' + tabId + ' from instance ' + instanceId);
+        }
+      });
+      // Release any locks for this tab
       multiInstanceManager.releaseTabLock(tabId);
     }
   };

@@ -7,6 +7,7 @@ import { program } from "commander";
 
 import type { Resource } from "./resources/resource";
 import { createServerWithTools } from "./server";
+import { enableHotReload } from "./hot-reload";
 // import * as common from "./tools/common";  // Using unified navigation instead
 import { browser_navigate } from "./tools/navigation-unified";
 import { pressKey, wait } from "./tools/common";
@@ -120,6 +121,18 @@ program
   .action(async () => {
     const server = await createServer();
     setupExitWatchdog(server);
+
+    // Enable hot reload in development mode
+    if (process.env.NODE_ENV === 'development' || process.env.HOT_RELOAD === 'true') {
+      console.error('[BrowserMCP] Hot reload enabled - edit any .ts file to trigger rebuild and respawn');
+      const watchPath = process.env.HOT_RELOAD_WATCH_PATH || '/home/david/Work/Programming/browsermcp-enhanced/src';
+      console.error(`[BrowserMCP] Watching: ${watchPath}`);
+      enableHotReload({
+        verbose: true,
+        debounceMs: 500,
+        watchPath: watchPath
+      });
+    }
 
     const transport = new StdioServerTransport();
     await server.connect(transport);

@@ -6,6 +6,7 @@ node_modules
 .pnp.js
 
 # Local env files
+.env
 .env.local
 .env.development.local
 .env.test.local
@@ -43,3 +44,7 @@ HINT-SYSTEM-IMPLEMENTATION.md
 
 # Temporary files and directories
 tmp/
+
+# Test and database files (may contain sensitive data)
+tests/logs/
+database/

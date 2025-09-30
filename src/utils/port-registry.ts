@@ -36,21 +36,58 @@ export class PortRegistryManager {
 
   private async acquireLock(): Promise<void> {
     const startTime = Date.now();
-    while (fs.existsSync(LOCK_FILE)) {
-      if (Date.now() - startTime > MAX_LOCK_WAIT_MS) {
-        // Force unlock if lock is stale
+
+    while (Date.now() - startTime < MAX_LOCK_WAIT_MS) {
+      try {
+        // CRITICAL FIX: Use 'wx' flag for atomic create-exclusive operation
+        // This prevents TOCTTOU race conditions - either we create it or we don't
+        const fd = fs.openSync(LOCK_FILE, 'wx');
+        try {
+          fs.writeSync(fd, process.pid.toString());
+          fs.closeSync(fd);
+          return; // Success! Lock acquired atomically
+        } catch (writeErr) {
+          // Close FD even if write fails
+          try { fs.closeSync(fd); } catch {}
+          throw writeErr;
+        }
+      } catch (err: any) {
+        if (err.code !== 'EEXIST') {
+          // Unexpected error (permissions, etc.)
+          throw err;
+        }
+
+        // Lock file exists - check if it's stale
         try {
           const stat = fs.statSync(LOCK_FILE);
-          if (Date.now() - stat.mtimeMs > 5000) {
-            fs.unlinkSync(LOCK_FILE);
-            break;
+          const age = Date.now() - stat.mtimeMs;
+
+          if (age > 5000) {
+            // Stale lock detected - try to remove it
+            try {
+              fs.unlinkSync(LOCK_FILE);
+              console.log('[PortRegistry] Removed stale lock file (age: ' + age + 'ms)');
+              continue; // Retry immediately after removing stale lock
+            } catch (unlinkErr: any) {
+              // Someone else may have removed it already
+              if (unlinkErr.code !== 'ENOENT') {
+                console.warn('[PortRegistry] Failed to remove stale lock:', unlinkErr);
+              }
+            }
           }
-        } catch {}
-        throw new Error('Failed to acquire registry lock');
+        } catch (statErr: any) {
+          // Lock file disappeared between EEXIST and stat - that's OK, retry
+          if (statErr.code === 'ENOENT') {
+            continue;
+          }
+        }
+
+        // Lock is valid and held by another process - wait and retry
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
-    fs.writeFileSync(LOCK_FILE, process.pid.toString());
+
+    throw new Error('Failed to acquire registry lock after ' + MAX_LOCK_WAIT_MS + 'ms');
   }
 
   private releaseLock(): void {

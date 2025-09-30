@@ -1,0 +1,87 @@
+{
+  "mcpServers": {
+    "browsermcp": {
+      "command": "node",
+      "args": [
+        "/home/david/.local/lib/browsermcp-enhanced/dist/index.js"
+      ],
+      "env": {
+        "BROWSERMCP_ENHANCED": "true",
+        "BROWSERMCP_UNSAFE_MODE": "false",
+        "MCP_SCREENSHOT_AUDIT": "true",
+        "MCP_SCREENSHOT_DIR": "/tmp/claude_images",
+        "MCP_SCREENSHOT_MAX": "100"
+      }
+    },
+    "sage": {
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "/home/david/Work/Programming/sage/sage-mcp/server.py"
+      ],
+      "env": {
+        "WORKSPACE_ROOT": "/home/david",
+        "DEFAULT_MODEL": "${DEFAULT_MODEL:-o3}",
+        "OPENAI_USE_FLEX_PROCESSING": "${OPENAI_USE_FLEX_PROCESSING:-0}",
+        "REDIS_URL": "${REDIS_URL:-redis://localhost:6379/0}",
+        "LOG_LEVEL": "${LOG_LEVEL:-INFO}",
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}",
+        "GEMINI_API_KEY": "${GEMINI_API_KEY}",
+        "OPENAI_ALLOWED_MODELS": "${OPENAI_ALLOWED_MODELS:-o3,gpt-5}",
+        "GOOGLE_ALLOWED_MODELS": "${GOOGLE_ALLOWED_MODELS:-gemini-2.5-pro,gemini-2.5-flash}",
+        "DISABLED_MODEL_PATTERNS": "${DISABLED_MODEL_PATTERNS:-anthropic,claude,sonnet,opus,haiku}",
+        "BLOCKED_MODELS": "${BLOCKED_MODELS:-gpt-4,gpt-3,o3-mini,gpt-5-mini,gpt-5-nano,gemini-2.0-flash,gemini-2.0-flash-lite,flash,flashlite,flash-lite,flash2,flash2.5,flash-2.0,lite,grokfast,grok-3-fast,o4-mini,mini}",
+        "MAX_TOKENS_DEFAULT": "${MAX_TOKENS_DEFAULT:-500000}",
+        "MAX_TOKENS_GEMINI": "${MAX_TOKENS_GEMINI:-2000000}",
+        "MAX_TOKENS_GPT": "${MAX_TOKENS_GPT:-500000}",
+        "MAX_TOKENS_CLAUDE": "${MAX_TOKENS_CLAUDE:-200000}",
+        "MAX_FILE_SIZE": "${MAX_FILE_SIZE:-5242880}",
+        "TEMPERATURE_CHAT": "${TEMPERATURE_CHAT:-0.7}",
+        "TEMPERATURE_ANALYZE": "${TEMPERATURE_ANALYZE:-0.3}",
+        "TEMPERATURE_REVIEW": "${TEMPERATURE_REVIEW:-0.5}",
+        "TEMPERATURE_DEBUG": "${TEMPERATURE_DEBUG:-0.2}",
+        "TEMPERATURE_PLAN": "${TEMPERATURE_PLAN:-0.4}",
+        "TEMPERATURE_TEST": "${TEMPERATURE_TEST:-0.3}",
+        "TEMPERATURE_REFACTOR": "${TEMPERATURE_REFACTOR:-0.4}",
+        "TEMPERATURE_THINK": "${TEMPERATURE_THINK:-0.8}"
+      }
+    },
+    "shadcn-ui": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "shadcn-ui-mcp-server"
+      ],
+      "env": {}
+    },
+    "codex-mcp": {
+      "command": "codex",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    },
+    "neo4j": {
+      "command": "/home/david/.local/bin/uvx",
+      "args": [
+        "mcp-neo4j-cypher",
+        "--db-url",
+        "${NEO4J_URL:-bolt://localhost:7688}",
+        "--username",
+        "${NEO4J_USERNAME:-neo4j}",
+        "--password",
+        "${NEO4J_PASSWORD:-password}",
+        "--database",
+        "${NEO4J_DATABASE:-neo4j}"
+      ]
+    },
+    "espomcp": {
+      "type": "http",
+      "url": "https://voicemcp.apertia.ai/mcp",
+      "headers": {
+        "X-User-Email": "${ESPOMCP_USER_EMAIL:-david.strejc@apertia.cz}",
+        "X-Auth-Key": "${ESPOMCP_AUTH_KEY}"
+      }
+    }
+  }
+}

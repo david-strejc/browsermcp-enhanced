@@ -32,6 +32,9 @@
     // Tab locks: tabId -> instanceId
     this.tabLocks = new Map();
 
+    // Tab lock timestamps: tabId -> timestamp (for deadlock detection)
+    this.tabLockTimestamps = new Map();
+
     // Wait queue: tabId -> [instanceIds]
     this.waitQueues = new Map();
 
@@ -43,7 +46,7 @@
 
     // Port range to scan
     this.PORT_START = 8765;
-    this.PORT_END = 8775;
+    this.PORT_END = 8767;  // Reduced range to minimize console spam
 
     // Connection retry settings
     this.RECONNECT_DELAY = 3000;
@@ -53,11 +56,18 @@
 
     // Start port scanning
     this.startPortScanning();
+
+    // Initialize badge/icon state
+    this.updateBadge();
   }
 
   // Start scanning for MCP servers on different ports
   MultiInstanceManager.prototype.startPortScanning = function() {
     log('Starting port scanning...');
+
+    // Track active connection attempts to prevent duplicates
+    this.activeConnectionAttempts = this.activeConnectionAttempts || new Set();
+    this.scanInProgress = false;
 
     // Initial scan
     this.scanPorts();
@@ -70,31 +80,72 @@
   };
 
   MultiInstanceManager.prototype.scanPorts = function() {
+    // CRITICAL FIX: Prevent concurrent scans
+    if (this.scanInProgress) {
+      log('Scan already in progress, skipping');
+      return;
+    }
+
+    this.scanInProgress = true;
+    this.activeConnectionAttempts = this.activeConnectionAttempts || new Set();
+
     var self = this;
     var portsToScan = this.getPortsToScan();
     log('Scanning ports:', portsToScan.join(', '));
+
     portsToScan.forEach(function(port) {
-      // Check if we already have a connection to this port
-      var existingConnection = null;
-      this.instances.forEach(function(inst) {
+      // CRITICAL FIX: Check for existing connection OR active connection attempt
+      var hasExistingConnection = false;
+      self.instances.forEach(function(inst) {
         if (inst.port === port && inst.ws.readyState === WebSocket.OPEN) {
-          existingConnection = inst;
+          hasExistingConnection = true;
         }
       });
 
-      if (!existingConnection) {
-        var failureInfo = this.portFailures.get(port);
-        if (failureInfo) {
-          var now = Date.now();
-          var elapsed = now - failureInfo.lastAttempt;
-          var waitTime = failureInfo.nextRetryDelay;
-          if (elapsed < waitTime) {
-            return;
-          }
-        }
-        this.tryConnect(port);
+      if (hasExistingConnection) {
+        return; // Skip - already connected
       }
-    }, this);
+
+      // CRITICAL FIX: Check if connection attempt is already in flight
+      if (self.activeConnectionAttempts.has(port)) {
+        return; // Skip - connection attempt already active
+      }
+
+      // Check backoff timing
+      var failureInfo = self.portFailures.get(port);
+      if (failureInfo) {
+        var now = Date.now();
+        var elapsed = now - failureInfo.lastAttempt;
+        var waitTime = failureInfo.nextRetryDelay;
+        if (elapsed < waitTime) {
+          return; // Still in backoff period
+        }
+      }
+
+      // Mark as active attempt
+      self.activeConnectionAttempts.add(port);
+      self.tryConnect(port);
+    });
+
+    this.scanInProgress = false;
+  };
+
+  // Silent port probe using fetch (no console errors for closed ports)
+  MultiInstanceManager.prototype.isPortOpen = function(port, callback) {
+    // Try a quick HTTP request to the port
+    // Even if it's a WebSocket server, the TCP connection will succeed
+    fetch('http://localhost:' + port, {
+      method: 'HEAD',
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(1000) // 1 second timeout
+    })
+      .then(function() {
+        callback(true); // Port is open
+      })
+      .catch(function() {
+        callback(false); // Port is closed or timeout
+      });
   };
 
   MultiInstanceManager.prototype.tryConnect = function(port) {
@@ -104,19 +155,36 @@
       failureInfo.lastAttempt = Date.now();
       this.portFailures.set(port, failureInfo);
     }
-    var url = 'ws://localhost:' + port;
-    var ws = new WebSocket(url);
+
+    // Probe port first to avoid console errors
+    this.isPortOpen(port, function(isOpen) {
+      if (!isOpen) {
+        // Port closed - silently skip without console error
+        if (self.activeConnectionAttempts) {
+          self.activeConnectionAttempts.delete(port);
+        }
+        return;
+      }
+
+      // Port is open - now create WebSocket
+      var url = 'ws://localhost:' + port;
+      var ws = new WebSocket(url);
 
     // Timeout for connection attempt
     var timeout = setTimeout(function() {
       if (ws.readyState === WebSocket.CONNECTING) {
         ws.close();
+        // CRITICAL FIX: Clear active attempt on timeout
+        if (self.activeConnectionAttempts) {
+          self.activeConnectionAttempts.delete(port);
+        }
       }
     }, 5000);
 
     ws.onopen = function() {
       clearTimeout(timeout);
       self.portFailures.delete(port);
+      // Keep port in activeConnectionAttempts until fully registered
       log('Connected to port ' + port + ', requesting instance ID...');
 
       // Request instance ID
@@ -142,9 +210,17 @@
         }
 
         // Handle regular messages (after registration)
-        var instanceId = self.socketToInstance.get(ws);
+        // Prefer instanceId from message, fallback to socket mapping
+        var instanceId = message.instanceId || self.socketToInstance.get(ws);
         if (instanceId) {
+          // If message has instanceId, verify it matches our socket mapping
+          var expectedId = self.socketToInstance.get(ws);
+          if (expectedId && message.instanceId && expectedId !== message.instanceId) {
+            warn('Instance ID mismatch! Expected: ' + expectedId + ', Got: ' + message.instanceId);
+          }
           self.handleInstanceMessage(instanceId, message);
+        } else {
+          warn('No instance ID found for message type: ' + message.type);
         }
       } catch (err) {
         error('Error handling message:', err);
@@ -153,17 +229,26 @@
 
     ws.onerror = function(err) {
       clearTimeout(timeout);
-      self.trackPortFailure(port, err);
+      // Silent: Don't log connection refused errors - they're expected during port scanning
+      // self.trackPortFailure(port, err);
+      // CRITICAL FIX: Clear active attempt on error
+      if (self.activeConnectionAttempts) {
+        self.activeConnectionAttempts.delete(port);
+      }
     };
 
     ws.onclose = function() {
       clearTimeout(timeout);
+      // CRITICAL FIX: Clear active attempt on close
+      if (self.activeConnectionAttempts) {
+        self.activeConnectionAttempts.delete(port);
+      }
+
       // Remove from instances if registered
       var instanceId = self.socketToInstance.get(ws);
       if (instanceId) {
         var closingInstance = self.instances.get(instanceId);
-        self.instances.delete(instanceId);
-        self.socketToInstance.delete(ws);
+
         log('Instance ' + instanceId + ' disconnected');
 
         if (closingInstance && closingInstance.portListTimer) {
@@ -171,38 +256,70 @@
           closingInstance.portListTimer = null;
         }
 
-        // Release any tab locks held by this instance
-        self.tabLocks.forEach(function(lockInstanceId, tabId) {
-          if (lockInstanceId === instanceId) {
-            self.releaseTabLock(tabId, instanceId);
-          }
-        });
+        // HOT-RELOAD FIX: Don't close tabs on disconnect - they'll reconnect
+        // Store tabs for potential reconnection
+        if (closingInstance && closingInstance.tabs && closingInstance.tabs.size > 0) {
+          log('Instance ' + instanceId + ' disconnected with ' + closingInstance.tabs.size + ' tabs - preserving for reconnection');
 
-        // Schedule reconnection
-        setTimeout(function() {
-          self.tryConnect(port);
-        }, self.RECONNECT_DELAY);
+          // Release locks but DON'T close tabs
+          var tabIds = Array.from(closingInstance.tabs);
+          tabIds.forEach(function(tabId) {
+            self.releaseTabLock(tabId, instanceId);
+          });
+        }
+
+        // Proceed immediately without closing tabs
+        finishInstanceCleanup();
+
+        function finishInstanceCleanup() {
+          // Release any other tab locks held by this instance
+          self.tabLocks.forEach(function(lockInstanceId, tabId) {
+            if (lockInstanceId === instanceId) {
+              self.releaseTabLock(tabId, instanceId);
+            }
+          });
+
+          // Now remove the instance
+          self.instances.delete(instanceId);
+          self.socketToInstance.delete(ws);
+          self.updateBadge();
+
+          log('Instance ' + instanceId + ' cleanup complete');
+
+          // Schedule reconnection
+          setTimeout(function() {
+            self.tryConnect(port);
+          }, self.RECONNECT_DELAY);
+        }
       } else {
         // Failed before registration - apply backoff
         self.trackPortFailure(port);
       }
     };
+    }); // End isPortOpen callback
   };
 
   MultiInstanceManager.prototype.registerInstance = function(instanceId, ws, port) {
     log('Registered instance ' + instanceId + ' on port ' + port);
 
-    // Store instance info
+    // Store instance info with its own tab tracking
     this.instances.set(instanceId, {
       ws: ws,
       port: port,
       connectedAt: Date.now(),
       lastActivity: Date.now(),
-      portListTimer: null
+      portListTimer: null,
+      activeTabId: null,  // Each instance tracks its own active tab
+      tabs: new Set()      // Track all tabs owned by this instance
     });
 
     // Store reverse mapping
     this.socketToInstance.set(ws, instanceId);
+
+    // CRITICAL FIX: Clear active connection attempt - instance is now registered
+    if (this.activeConnectionAttempts) {
+      this.activeConnectionAttempts.delete(port);
+    }
 
     // Update badge
     this.updateBadge();
@@ -282,15 +399,40 @@
       if (!currentLock) {
         // No lock exists, acquire immediately
         self.tabLocks.set(tabId, instanceId);
+        self.tabLockTimestamps = self.tabLockTimestamps || new Map();
+        self.tabLockTimestamps.set(tabId, Date.now());
         log('Instance ' + instanceId + ' acquired lock for tab ' + tabId);
         resolve(true);
         return;
       }
 
       if (currentLock === instanceId) {
-        // Already owns the lock
+        // Already owns the lock - refresh timestamp
+        self.tabLockTimestamps = self.tabLockTimestamps || new Map();
+        self.tabLockTimestamps.set(tabId, Date.now());
         resolve(true);
         return;
+      }
+
+      // ENHANCEMENT: Check if current lock is stale (held for >60 seconds)
+      self.tabLockTimestamps = self.tabLockTimestamps || new Map();
+      var lockAge = Date.now() - (self.tabLockTimestamps.get(tabId) || Date.now());
+      if (lockAge > 60000) {
+        warn('Detected stale lock on tab ' + tabId + ' held by ' + currentLock + ' (age: ' + lockAge + 'ms)');
+
+        // Verify the lock holder still exists and is connected
+        var lockHolder = self.instances.get(currentLock);
+        if (!lockHolder || lockHolder.ws.readyState !== WebSocket.OPEN) {
+          warn('Force-releasing stale lock from disconnected instance ' + currentLock);
+          self.releaseTabLock(tabId, currentLock);
+
+          // Now acquire the lock
+          self.tabLocks.set(tabId, instanceId);
+          self.tabLockTimestamps.set(tabId, Date.now());
+          log('Instance ' + instanceId + ' acquired lock for tab ' + tabId + ' (forced from stale)');
+          resolve(true);
+          return;
+        }
       }
 
       // Add to wait queue
@@ -319,6 +461,19 @@
           } else {
             self.waitQueues.set(tabId, queue);
           }
+
+          warn('Tab lock acquisition timeout for instance ' + instanceId + ' on tab ' + tabId);
+
+          // Check again if lock is stale and force-release if needed
+          var currentLock = self.tabLocks.get(tabId);
+          if (currentLock) {
+            var lockHolder = self.instances.get(currentLock);
+            if (!lockHolder || lockHolder.ws.readyState !== WebSocket.OPEN) {
+              warn('Force-releasing stale lock during timeout from ' + currentLock);
+              self.releaseTabLock(tabId, currentLock);
+            }
+          }
+
           reject(new Error('Tab lock acquisition timeout'));
         }
       }, 30000); // 30 second timeout
@@ -331,11 +486,20 @@
   MultiInstanceManager.prototype.releaseTabLock = function(tabId, instanceId) {
     var currentLock = this.tabLocks.get(tabId);
 
+    if (instanceId === undefined || instanceId === null) {
+      instanceId = currentLock;
+    }
+
     if (currentLock !== instanceId) {
       return false;
     }
 
     this.tabLocks.delete(tabId);
+
+    // Clean up timestamp tracking
+    this.tabLockTimestamps = this.tabLockTimestamps || new Map();
+    this.tabLockTimestamps.delete(tabId);
+
     log('Instance ' + instanceId + ' released lock for tab ' + tabId);
 
     // Process wait queue
@@ -372,14 +536,43 @@
     });
 
     if (chrome.action) {
-      if (connectedCount > 1) {
-        chrome.action.setBadgeText({ text: connectedCount.toString() });
-        chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-      } else if (connectedCount === 1) {
-        chrome.action.setBadgeText({ text: '' });
+      // FIX: Update badge and icon based on connection count
+      if (connectedCount >= 1) {
+        // Connected state - show green badge with count (or empty for 1)
+        if (connectedCount > 1) {
+          chrome.action.setBadgeText({ text: connectedCount.toString() });
+          chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+        } else {
+          chrome.action.setBadgeText({ text: '' });
+          // Still set green color for single connection
+          chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
+        }
       } else {
+        // Disconnected state - show red badge with !
         chrome.action.setBadgeText({ text: '!' });
         chrome.action.setBadgeBackgroundColor({ color: '#f44336' });
+      }
+
+      // FIX: Icon should match connection state
+      var iconPath = connectedCount >= 1 ? {
+        "16": "icon-16-connected.png",
+        "48": "icon-48-connected.png",
+        "128": "icon-128-connected.png"
+      } : {
+        "16": "icon-16-disconnected.png",
+        "48": "icon-48-disconnected.png",
+        "128": "icon-128-disconnected.png"
+      };
+
+      try {
+        var maybePromise = chrome.action.setIcon({ path: iconPath });
+        if (maybePromise && typeof maybePromise.catch === 'function') {
+          maybePromise.catch(function(err) {
+            warn('Failed to update action icon:', err);
+          });
+        }
+      } catch (err) {
+        warn('Failed to update action icon:', err);
       }
     }
   };
@@ -521,8 +714,10 @@
 
   // Add method to handle instance messages
   MultiInstanceManager.prototype.handleInstanceMessage = function(instanceId, message) {
+    // CRITICAL FIX: Validate instance before processing
     var instance = this.instances.get(instanceId);
     if (!instance || instance.ws.readyState !== WebSocket.OPEN) {
+      warn('Message from invalid or disconnected instance ' + instanceId);
       return false;
     }
 
@@ -531,8 +726,29 @@
       return false;
     }
 
+    // ENHANCEMENT: Validate message instanceId matches actual instanceId
+    if (message.instanceId && message.instanceId !== instanceId) {
+      error('Instance ID mismatch! Message claims: ' + message.instanceId + ', actual: ' + instanceId);
+      return false;
+    }
+
+    // Debug logging for incoming messages
+    log('Message received from instance ' + instanceId + ':', {
+      type: message.type,
+      hasInstanceId: !!message.instanceId,
+      receivedInstanceId: message.instanceId,
+      expectedInstanceId: instanceId,
+      hasPayload: !!message.payload
+    });
+
     // Heartbeat / ping handling
     if (message.type === 'ping' && message.id) {
+      // Re-verify instance is still valid before responding
+      if (instance.ws.readyState !== WebSocket.OPEN) {
+        warn('Instance ' + instanceId + ' disconnected during ping handling');
+        return false;
+      }
+
       instance.ws.send(JSON.stringify({
         id: message.id,
         type: 'pong',
@@ -617,33 +833,71 @@
 
     instance.lastActivity = Date.now();
 
+    // Create a closure to capture current instance reference
+    var self = this;
+
     try {
       Promise.resolve(handler(payload, instanceId))
         .then(function(result) {
-          if (message.id) {
-            instance.ws.send(JSON.stringify({
+          if (!message.id) return;
+
+          // CRITICAL FIX: Re-validate instance before sending response
+          var currentInstance = self.instances.get(instanceId);
+          if (!currentInstance || currentInstance.ws.readyState !== WebSocket.OPEN) {
+            warn('Instance ' + instanceId + ' disconnected before response could be sent');
+            return;
+          }
+
+          // ENHANCEMENT: Verify we're sending to the same WebSocket
+          if (currentInstance !== instance) {
+            warn('Instance ' + instanceId + ' reconnected, skipping stale response');
+            return;
+          }
+
+          try {
+            currentInstance.ws.send(JSON.stringify({
               id: message.id,
               type: message.type,
               payload: result || {}
             }));
+          } catch (sendErr) {
+            warn('Failed to send response to instance ' + instanceId + ':', sendErr);
           }
         })
         .catch(function(err) {
           error('Handler error for instance ' + instanceId + ' message ' + message.type + ':', err);
-          if (message.id) {
-            instance.ws.send(JSON.stringify({
+          if (!message.id) return;
+
+          // Re-validate instance before sending error response
+          var currentInstance = self.instances.get(instanceId);
+          if (!currentInstance || currentInstance.ws.readyState !== WebSocket.OPEN) {
+            warn('Instance ' + instanceId + ' disconnected before error response could be sent');
+            return;
+          }
+
+          try {
+            currentInstance.ws.send(JSON.stringify({
               id: message.id,
               error: err && err.message ? err.message : String(err)
             }));
+          } catch (sendErr) {
+            warn('Failed to send error response to instance ' + instanceId + ':', sendErr);
           }
         });
     } catch (err) {
       error('Synchronous handler error for instance ' + instanceId + ':', err);
       if (message.id) {
-        instance.ws.send(JSON.stringify({
-          id: message.id,
-          error: err && err.message ? err.message : String(err)
-        }));
+        // Validate instance before sending synchronous error
+        if (instance.ws.readyState === WebSocket.OPEN) {
+          try {
+            instance.ws.send(JSON.stringify({
+              id: message.id,
+              error: err && err.message ? err.message : String(err)
+            }));
+          } catch (sendErr) {
+            warn('Failed to send sync error response to instance ' + instanceId + ':', sendErr);
+          }
+        }
       }
       return false;
     }
