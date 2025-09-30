@@ -11,13 +11,38 @@
 - Robust error handling and status checks
 - **DO NOT MANUALLY COPY FILES** - Let the script handle everything
 
+## Architecture Modes
+
+### 🎯 **UNIFIED MODE** (Recommended - NEW!)
+**Industry-standard single-listener architecture**
+- **Entry:** `dist/index-unified.js`
+- **Port:** Single port 8765 for ALL instances
+- **Benefits:**
+  - ✅ No port scanning needed
+  - ✅ Scales to unlimited Claude instances
+  - ✅ Simpler firewall rules (1 port)
+  - ✅ Follows Selenium/Playwright/Chrome DevTools pattern
+  - ✅ Lower memory footprint
+- **Connection:** `ws://localhost:8765/session/<instanceId>`
+
+### Multi-Instance Mode (Legacy)
+- **Entry:** `dist/index-multi.js`
+- **Ports:** 8765-8775 (11 pre-created servers)
+- **Limit:** Max 11 concurrent instances
+- **Note:** Will be deprecated in future release
+
+### HTTP Mode
+- **Entry:** `dist/index-http.js`
+- **Port:** HTTP 3000 + dynamic WebSocket allocation
+- **Use Case:** Alternative transport for specific setups
+
 ## Components
 
 ### 1. MCP Server
 📦 **Location:** `/home/david/.local/lib/browsermcp-enhanced/`
 - **Running:** Via Claude's MCP integration (configured in `~/.claude/mcp_servers.json`)
-- **Entry:** `/home/david/.local/lib/browsermcp-enhanced/dist/index.js`
-- **Manual Update:** 
+- **Recommended Entry:** `/home/david/.local/lib/browsermcp-enhanced/dist/index-unified.js`
+- **Manual Update:**
   1. Bump version in `package.json`
   2. Build: `npm run build`
   3. Copy: `cp -r dist/* /home/david/.local/lib/browsermcp-enhanced/dist/`
@@ -65,7 +90,13 @@
   - OAuth Test: Any site with "Connect" or "Login with" buttons
 
 ## Recent Enhancements
+- ✅ **Unified WebSocket Architecture** - Single port, unlimited instances, no port scanning
 - ✅ Automatic detection of OAuth/popup triggers
 - ✅ Trusted click simulation via Chrome Debugger API
 - ✅ Component-based element capture for better accuracy
 - ✅ Smart deployment script with version management
+
+## 📖 Documentation
+- **Unified Architecture:** See `UNIFIED_ARCHITECTURE.md` for complete design documentation
+- **Migration Guide:** Instructions for switching from multi-instance to unified mode
+- **Troubleshooting:** Common issues and solutions in architecture doc
