@@ -1,4 +1,5 @@
-import fs from 'fs';
+import fs from 'fs/promises';
+import { constants } from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { isPortInUse } from './port';
@@ -39,18 +40,15 @@ export class PortRegistryManager {
 
     while (Date.now() - startTime < MAX_LOCK_WAIT_MS) {
       try {
-        // CRITICAL FIX: Use 'wx' flag for atomic create-exclusive operation
-        // This prevents TOCTTOU race conditions - either we create it or we don't
-        const fd = fs.openSync(LOCK_FILE, 'wx');
+        // Atomic create-exclusive operation using async I/O
+        // O_CREAT | O_EXCL | O_WRONLY flags ensure atomicity
+        const handle = await fs.open(LOCK_FILE, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
         try {
-          fs.writeSync(fd, process.pid.toString());
-          fs.closeSync(fd);
-          return; // Success! Lock acquired atomically
-        } catch (writeErr) {
-          // Close FD even if write fails
-          try { fs.closeSync(fd); } catch {}
-          throw writeErr;
+          await handle.writeFile(process.pid.toString());
+        } finally {
+          await handle.close();
         }
+        return; // Success! Lock acquired atomically
       } catch (err: any) {
         if (err.code !== 'EEXIST') {
           // Unexpected error (permissions, etc.)
@@ -59,14 +57,14 @@ export class PortRegistryManager {
 
         // Lock file exists - check if it's stale
         try {
-          const stat = fs.statSync(LOCK_FILE);
-          const age = Date.now() - stat.mtimeMs;
+          const stats = await fs.stat(LOCK_FILE);
+          const age = Date.now() - stats.mtimeMs;
 
           if (age > 5000) {
             // Stale lock detected - try to remove it
             try {
-              fs.unlinkSync(LOCK_FILE);
-              console.log('[PortRegistry] Removed stale lock file (age: ' + age + 'ms)');
+              await fs.unlink(LOCK_FILE);
+              console.log('[PortRegistry] Removed stale lock (age: ' + age + 'ms)');
               continue; // Retry immediately after removing stale lock
             } catch (unlinkErr: any) {
               // Someone else may have removed it already
@@ -90,10 +88,12 @@ export class PortRegistryManager {
     throw new Error('Failed to acquire registry lock after ' + MAX_LOCK_WAIT_MS + 'ms');
   }
 
-  private releaseLock(): void {
+  private async releaseLock(): Promise<void> {
     try {
-      fs.unlinkSync(LOCK_FILE);
-    } catch {}
+      await fs.unlink(LOCK_FILE);
+    } catch {
+      // Ignore errors (file may not exist)
+    }
   }
 
   private readRegistry(): PortRegistry {
@@ -171,7 +171,7 @@ export class PortRegistryManager {
 
       throw new Error(`No available ports in range ${PORT_RANGE_START}-${PORT_RANGE_END}`);
     } finally {
-      this.releaseLock();
+      await this.releaseLock();
     }
   }
 
@@ -193,7 +193,7 @@ export class PortRegistryManager {
           this.writeRegistry(registry);
         }
       } finally {
-        this.releaseLock();
+        await this.releaseLock();
       }
     }, 30000); // Every 30 seconds
   }
@@ -216,7 +216,7 @@ export class PortRegistryManager {
 
       console.log(`[PortRegistry] Released port ${this.port} for instance ${this.instanceId}`);
     } finally {
-      this.releaseLock();
+      await this.releaseLock();
     }
 
     this.port = null;
@@ -241,7 +241,7 @@ export class PortRegistryManager {
       manager.writeRegistry(registry);
       return registry.instances;
     } finally {
-      manager.releaseLock();
+      await manager.releaseLock();
     }
   }
 }
