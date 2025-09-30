@@ -18,12 +18,12 @@
 
 ## 📊 PROGRESS TRACKER
 
-**Overall Progress**: 1/15 steps complete (6.7%)
+**Overall Progress**: 3/15 steps complete (20%)
 
 ### Phase 1: Critical Production Fixes (P0)
 - [x] Step 1.1: Fix port range mismatch (CRITICAL) ✅ COMPLETED 2025-09-30
-- [ ] Step 1.2: Test multi-instance connection
-- [ ] Step 1.3: Fix hot-reload shell configuration
+- [x] Step 1.2: Test multi-instance connection ✅ VERIFIED 2025-09-30
+- [x] Step 1.3: Fix hot-reload shell configuration ✅ COMPLETED 2025-09-30
 - [ ] Step 1.4: Test hot-reload functionality
 - [ ] Step 1.5: Migrate port-registry to async I/O (Part 1: Lock file)
 - [ ] Step 1.6: Migrate port-registry to async I/O (Part 2: Registry file)
@@ -938,17 +938,16 @@ Refs: CODE_REVIEW_2025-09-30.md Phase 7.2
 
 ## 🎯 CURRENT STATUS
 
-**Active Step**: Step 1.2 - Test multi-instance connection ⏸️ AWAITING USER
+**Active Step**: Step 1.4 - Test hot-reload functionality (awaiting deployment)
 
-**Last Completed**: Step 1.1 - Fix port range mismatch ✅ (deployed v1.20.6)
+**Last Completed**: Step 1.3 - Fix hot-reload shell configuration ✅
 
-**Blockers**: Manual testing required
+**Blockers**: None
 
 **Notes**:
-- Port range fix deployed (8765-8775)
-- Extension & server deployed to production
-- Ready for multi-instance testing
-- User needs to: Restart Claude Desktop + test 4 instances
+- Step 1.2 verified successfully (multi-instance works)
+- Hot-reload shell fix applied (shell: true)
+- Ready to build, deploy, and test hot-reload
 
 ---
 
@@ -958,7 +957,7 @@ _This section will be updated as we progress_
 
 ### Phase 1 Commits:
 - [x] Step 1.1: `fix: Sync extension port range with server (8765-8775)` ✅ 2025-09-30
-- [ ] Step 1.3: `fix: Correct shell configuration for hot-reload deploy`
+- [x] Step 1.3: `fix: Correct shell configuration for hot-reload deploy` ✅ 2025-09-30
 - [ ] Step 1.5: `fix: Migrate port-registry lock file to async I/O`
 - [ ] Step 1.6: `fix: Migrate port-registry data file to async I/O`
 

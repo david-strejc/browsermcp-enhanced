@@ -66,7 +66,7 @@ function triggerBuildAndReload(options: Required<HotReloadOptions>) {
       // Copy dist and package.json to deployed location
       const deployProcess = spawn('bash', ['-c', 'cp -r dist/* /home/david/.local/lib/browsermcp-enhanced/dist/ && cp package.json /home/david/.local/lib/browsermcp-enhanced/'], {
         stdio: 'inherit',
-        shell: false,
+        shell: true, // Required for bash -c command
         cwd: path.join(options.watchPath, '..')
       });
 
