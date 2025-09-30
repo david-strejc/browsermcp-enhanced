@@ -810,7 +810,7 @@
                 if (handleRuntimeError(reject)) {
                   return;
                 }
-                resolve({ dataUrl: dataUrl });
+                resolve({ data: dataUrl });
               });
             }
             if (tab.active) {
