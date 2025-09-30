@@ -800,7 +800,12 @@
     function captureAccessibilitySnapshot(options) {
       console.log('[PAGE] captureAccessibilitySnapshot called with options:', options);
 
-      if (!window.__elementTracker) {
+      // Initialize or reset element tracker if it grows too large
+      if (!window.__elementTracker || window.__elementTracker.size > 500) {
+        if (window.__elementTracker && window.__elementTracker.size > 500) {
+          console.log('[PAGE] Resetting element tracker (size:', window.__elementTracker.size,
+                      ') to prevent memory leak');
+        }
         window.__elementTracker = new Map();
         window.__elementIdCounter = 0;
       }
