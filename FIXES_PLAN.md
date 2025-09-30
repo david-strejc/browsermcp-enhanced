@@ -18,13 +18,13 @@
 
 ## 📊 PROGRESS TRACKER
 
-**Overall Progress**: 3/15 steps complete (20%)
+**Overall Progress**: 4/15 steps complete (26.7%)
 
 ### Phase 1: Critical Production Fixes (P0)
 - [x] Step 1.1: Fix port range mismatch (CRITICAL) ✅ COMPLETED 2025-09-30
 - [x] Step 1.2: Test multi-instance connection ✅ VERIFIED 2025-09-30
 - [x] Step 1.3: Fix hot-reload shell configuration ✅ COMPLETED 2025-09-30
-- [ ] Step 1.4: Test hot-reload functionality
+- [x] Step 1.4: Test hot-reload functionality ✅ VERIFIED 2025-09-30
 - [ ] Step 1.5: Migrate port-registry to async I/O (Part 1: Lock file)
 - [ ] Step 1.6: Migrate port-registry to async I/O (Part 2: Registry file)
 - [ ] Step 1.7: Test port allocation under load
@@ -938,16 +938,16 @@ Refs: CODE_REVIEW_2025-09-30.md Phase 7.2
 
 ## 🎯 CURRENT STATUS
 
-**Active Step**: Step 1.4 - Test hot-reload functionality (awaiting deployment)
+**Active Step**: Step 1.5 - Migrate lock file to async I/O
 
-**Last Completed**: Step 1.3 - Fix hot-reload shell configuration ✅
+**Last Completed**: Step 1.4 - Hot-reload test ✅ (PASSED: 3s respawn)
 
 **Blockers**: None
 
 **Notes**:
-- Step 1.2 verified successfully (multi-instance works)
-- Hot-reload shell fix applied (shell: true)
-- Ready to build, deploy, and test hot-reload
+- Hot-reload working perfectly (shell:true fix verified)
+- Build → Deploy → Respawn cycle: ~3 seconds
+- Ready for async I/O migration (critical perf fix)
 
 ---
 
