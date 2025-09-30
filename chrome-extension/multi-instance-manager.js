@@ -44,9 +44,9 @@
     // Dynamically discovered ports
     this.dynamicPorts = null;
 
-    // Port range to scan
+    // Port range to scan (must match server PORT_RANGE_START/END in port-registry.ts)
     this.PORT_START = 8765;
-    this.PORT_END = 8767;  // Reduced range to minimize console spam
+    this.PORT_END = 8775;  // Sync with server range for multi-instance discovery
 
     // Connection retry settings
     this.RECONNECT_DELAY = 3000;
