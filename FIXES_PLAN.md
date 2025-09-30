@@ -18,7 +18,7 @@
 
 ## 📊 PROGRESS TRACKER
 
-**Overall Progress**: 5/15 steps complete (33.3%)
+**Overall Progress**: 6/15 steps complete (40.0%)
 
 ### Phase 1: Critical Production Fixes (P0)
 - [x] Step 1.1: Fix port range mismatch (CRITICAL) ✅ COMPLETED 2025-09-30
@@ -26,7 +26,7 @@
 - [x] Step 1.3: Fix hot-reload shell configuration ✅ COMPLETED 2025-09-30
 - [x] Step 1.4: Test hot-reload functionality ✅ VERIFIED 2025-09-30
 - [x] Step 1.5: Migrate port-registry to async I/O (Part 1: Lock file) ✅ COMPLETED 2025-09-30
-- [ ] Step 1.6: Migrate port-registry to async I/O (Part 2: Registry file)
+- [x] Step 1.6: Migrate port-registry to async I/O (Part 2: Registry file) ✅ COMPLETED 2025-09-30
 - [ ] Step 1.7: Test port allocation under load
 
 ### Phase 2: High-Priority Fixes (P1)
@@ -390,20 +390,40 @@ private async writeRegistry(registry: PortRegistry): Promise<void> {
 6. Verify heartbeat updates (every 30s)
 
 **Success Criteria**:
-- [ ] Registry file created/updated correctly
-- [ ] No synchronous file I/O remaining
-- [ ] All instances tracked properly
-- [ ] Stale entry cleanup works
+- [x] Registry file created/updated correctly
+- [x] No synchronous file I/O remaining
+- [x] All instances tracked properly
+- [x] Stale entry cleanup works
+
+**Completed**: v1.20.9-step1.6-complete (2025-09-30)
+
+**Changes Applied**:
+- Converted `readRegistry()` to async with `await fs.readFile()`
+- Converted `writeRegistry()` to async with `await fs.writeFile()`
+- Removed `fs.existsSync()` check (ENOENT error handling instead)
+- Updated all callers in:
+  - `allocatePort()` (lines 140, 162)
+  - `startHeartbeat()` (lines 188, 195)
+  - `releasePort()` (lines 213, 217)
+  - `getActiveInstances()` (lines 241, 243)
+- Completes async I/O migration for port-registry (Part 2/2)
+
+**Testing Results**:
+- ✅ Build succeeds with no type errors
+- ✅ Registry file working (verified /tmp/browsermcp-ports.json)
+- ✅ Heartbeat updating every 30s
+- ✅ No synchronous file I/O remaining
 
 **Commit Message**:
 ```
-fix: Migrate port-registry data file to async I/O
+fix: Migrate port-registry file operations to async I/O (Step 1.6)
 
-- Replaced fs.readFileSync/writeFileSync with fs.promises
-- Eliminates remaining event loop blocking
-- CRITICAL: Completes async migration for port-registry
-
-Refs: CODE_REVIEW_2025-09-30.md Phase 5.2 (Part 2/2)
+- Convert readRegistry() to async with fs.readFile()
+- Convert writeRegistry() to async with fs.writeFile()
+- Update all callers (allocatePort, heartbeat, releasePort, getActiveInstances) to await
+- Eliminates remaining event loop blocking for registry operations
+- Completes async I/O migration (Part 2/2)
+- Combined with Step 1.5, all port-registry I/O is now non-blocking
 ```
 
 ---
