@@ -79,9 +79,9 @@ export const browser_navigate: Tool = {
         };
     }
 
-    // Capture snapshot if requested
+    // Capture snapshot if requested (use scaffold mode for compact output)
     if (snapshot) {
-      const snapshotResult = await captureAriaSnapshot(context);
+      const snapshotResult = await captureAriaSnapshot(context, "", { mode: 'scaffold' });
       // Append popup info to snapshot text if present
       if (popupInfo && snapshotResult.content[0].type === 'text') {
         snapshotResult.content[0].text = navigationResult + popupInfo + '\n\n' + snapshotResult.content[0].text;
