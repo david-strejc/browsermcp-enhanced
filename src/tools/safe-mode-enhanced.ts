@@ -27,15 +27,11 @@ export const browserSetInput: Tool = {
     }
   },
   handle: async (context: Context, { selector, value, pressEnter = false }) => {
-    const code = `
-      return await api.setInput('${selector}', '${value}', { pressEnter: ${pressEnter} });
-    `;
-
     try {
       const response = await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: 5000,
-        unsafe: false
+        method: 'setInput',
+        args: [selector, value, { pressEnter }],
+        timeout: 5000
       }, { timeoutMs: 5500 });
       const result = response.result;
       return {
@@ -82,20 +78,11 @@ export const browserScroll: Tool = {
     }
   },
   handle: async (context: Context, { to = 'bottom', steps = 1, delayMs = 500, smooth = true }) => {
-    const code = `
-      return await api.scroll({
-        to: ${typeof to === 'string' ? `'${to}'` : to},
-        steps: ${steps},
-        delayMs: ${delayMs},
-        smooth: ${smooth}
-      });
-    `;
-
     try {
       await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: (steps * delayMs) + 5000,
-        unsafe: false
+        method: 'scroll',
+        args: [{ to, steps, delayMs, smooth }],
+        timeout: (steps * delayMs) + 5000
       }, { timeoutMs: (steps * delayMs) + 5500 });
       return {
         content: [{
@@ -141,20 +128,11 @@ export const browserWaitFor: Tool = {
     }
   },
   handle: async (context: Context, { selector, timeoutMs = 10000, visible = false, intervalMs = 100 }) => {
-    const code = `
-      const el = await api.waitFor('${selector}', {
-        timeoutMs: ${timeoutMs},
-        visible: ${visible},
-        intervalMs: ${intervalMs}
-      });
-      return el ? true : false;
-    `;
-
     try {
       const response = await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: timeoutMs + 1000,
-        unsafe: false
+        method: 'waitFor',
+        args: [selector, { timeoutMs, visible, intervalMs }],
+        timeout: timeoutMs + 1000
       }, { timeoutMs: timeoutMs + 1500 });
       const result = response.result;
       return {
@@ -258,114 +236,32 @@ export const browserQuery: Tool = {
       outer = false
     } = params;
 
-    let code = '';
+    let method: string;
+    let args: any[];
 
     if (mode === 'html') {
       // HTML extraction mode
-      code = outer
-        ? `return api.getOuterHTML('${selector}');`
-        : `return api.getHTML('${selector}');`;
+      method = outer ? 'getOuterHTML' : 'getHTML';
+      args = [selector];
     } else if (mode === 'links') {
       // Links collection mode
-      code = `
-        const container = document.querySelector('${selector || 'body'}');
-        if (!container) return { links: [], error: 'Container not found' };
-
-        let links = Array.from(container.querySelectorAll('a[href]'));
-
-        // Apply filters
-        ${hrefContains ? `links = links.filter(a => a.href.includes('${hrefContains}'));` : ''}
-        ${textContains ? `links = links.filter(a => a.textContent.toLowerCase().includes('${textContains.toLowerCase()}'));` : ''}
-
-        // Apply exclusions
-        const excludePatterns = ${JSON.stringify(exclude)};
-        if (excludePatterns.length > 0) {
-          links = links.filter(a => !excludePatterns.some(pattern => a.href.includes(pattern)));
-        }
-
-        // Extract data
-        let results = links.slice(0, ${limit}).map(a => ({
-          href: a.href,
-          text: a.textContent.trim(),
-          title: a.title || '',
-          target: a.target || '_self'
-        }));
-
-        // Make unique if requested
-        ${unique ? `
-        const seen = new Set();
-        results = results.filter(link => {
-          if (seen.has(link.href)) return false;
-          seen.add(link.href);
-          return true;
-        });
-        ` : ''}
-
-        return { links: results, count: results.length };
-      `;
+      method = 'extractLinks';
+      args = [selector || 'body', { hrefContains, textContains, exclude, unique, limit }];
     } else if (mode === 'schema' && schema) {
       // Schema-based extraction mode
-      code = `
-        (function() {
-          const containers = Array.from(document.querySelectorAll('${selector}')).slice(0, ${limit});
-          const schema = ${JSON.stringify(schema)};
-
-          const results = containers.map(container => {
-            const item = {};
-
-            for (const [fieldName, config] of Object.entries(schema)) {
-              const selector = config.selector || fieldName;
-              const attr = config.attr || 'textContent';
-              const multiple = config.multiple || false;
-
-              if (multiple) {
-                const elements = container.querySelectorAll(selector);
-                item[fieldName] = Array.from(elements).map(el => {
-                  if (attr === 'textContent') {
-                    return el.textContent.trim();
-                  } else {
-                    return el.getAttribute(attr) || el[attr];
-                  }
-                });
-              } else {
-                const element = container.querySelector(selector);
-                if (element) {
-                  if (attr === 'textContent') {
-                    item[fieldName] = element.textContent.trim();
-                  } else {
-                    item[fieldName] = element.getAttribute(attr) || element[attr];
-                  }
-                } else {
-                  item[fieldName] = null;
-                }
-              }
-            }
-
-            return item;
-          });
-
-          return {
-            data: results,
-            count: results.length
-          };
-        })()
-      `;
+      method = 'extractSchema';
+      args = [selector, schema, limit];
     } else {
       // Simple attribute extraction mode
-      code = `
-        return api.query('${selector}', {
-          attrs: ${JSON.stringify(attrs)},
-          limit: ${limit},
-          includeHidden: ${includeHidden}
-        });
-      `;
+      method = 'query';
+      args = [selector, { attrs, limit, includeHidden }];
     }
 
     try {
       const response = await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: 10000,
-        unsafe: mode === 'schema' || mode === 'links'
+        method,
+        args,
+        timeout: 10000
       }, { timeoutMs: 10500 });
       const result = response.result;
 
@@ -376,7 +272,7 @@ export const browserQuery: Tool = {
             text: JSON.stringify({
               success: true,
               elements: result,
-              count: result.length
+              count: result?.length || 0
             }, null, 2)
           }]
         };
@@ -477,15 +373,11 @@ export const browserFillForm: Tool = {
     }
   },
   handle: async (context: Context, { formSelector = 'form', fields }) => {
-    const code = `
-      return api.fillForm('${formSelector}', ${JSON.stringify(fields)});
-    `;
-
     try {
       const response = await context.sendSocketMessage("js.execute", {
-        code: code,
-        timeout: 5000,
-        unsafe: false
+        method: 'fillForm',
+        args: [formSelector, fields],
+        timeout: 5000
       }, { timeoutMs: 5500 });
       const result = response.result;
       return {

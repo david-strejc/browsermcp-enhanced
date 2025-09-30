@@ -1118,32 +1118,186 @@
       return messageHandlers.get('page.wait')(payload);
     });
 
+    /**
+     * Ensure the MCP page API is injected into the tab
+     */
+    function ensurePageApi(tabId) {
+      return chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: function() {
+          return !!window.__mcpApiInstalled;
+        }
+      }).then(function(result) {
+        var hasApi = result && result[0] && result[0].result;
+
+        if (!hasApi) {
+          return chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['page-api.js']
+          });
+        }
+        return Promise.resolve();
+      });
+    }
+
+    // Cache for isolated world contexts (tabId -> executionContextId)
+    var isolatedWorldCache = new Map();
+    var CDP_VERSION = '1.3';
+    var SAFE_WORLD_NAME = 'mcpSafeWorld';
+
+    /**
+     * Execute arbitrary user code without CSP violations using chrome.debugger
+     * Works on ALL sites including those with strict CSP (Google, iDNES.cz, etc.)
+     * @param {number} tabId - Tab ID
+     * @param {string} code - User's JavaScript code
+     * @param {Array} args - Optional arguments
+     * @param {boolean} unsafe - Use MAIN world or ISOLATED world
+     * @param {number} timeout - Execution timeout
+     */
+    function runUserCode(tabId, code, args, unsafe, timeout) {
+      args = args || [];
+      unsafe = unsafe || false;
+      timeout = timeout || 5000;
+
+      // Attach chrome.debugger once
+      return chrome.debugger.attach({ tabId: tabId }, CDP_VERSION)
+        .then(function() {
+          // Get or create execution context
+          if (!unsafe) {
+            // SAFE mode - Create/use isolated world context
+            var cachedContextId = isolatedWorldCache.get(tabId);
+            if (cachedContextId) {
+              return Promise.resolve(cachedContextId);
+            }
+
+            // Get main frame ID first, then create isolated world
+            return chrome.debugger.sendCommand(
+              { tabId: tabId },
+              'Page.getFrameTree'
+            ).then(function(frameTree) {
+              var mainFrameId = frameTree.frameTree.frame.id;
+
+              return chrome.debugger.sendCommand(
+                { tabId: tabId },
+                'Page.createIsolatedWorld',
+                {
+                  frameId: mainFrameId,
+                  worldName: SAFE_WORLD_NAME,
+                  grantUniversalAccess: true
+                }
+              );
+            }).then(function(response) {
+              var contextId = response.executionContextId;
+              isolatedWorldCache.set(tabId, contextId);
+              return contextId;
+            });
+          }
+
+          // UNSAFE mode - Use main world (contextId = undefined)
+          return Promise.resolve(undefined);
+        })
+        .then(function(contextId) {
+          // Wrap user code in async IIFE so return/await work
+          var expression = '(async (..._args) => { ' + code + ' })(...' + JSON.stringify(args) + ')';
+
+          // Evaluate code
+          return chrome.debugger.sendCommand(
+            { tabId: tabId },
+            'Runtime.evaluate',
+            {
+              expression: expression,
+              contextId: contextId,  // undefined = main world, number = isolated world
+              awaitPromise: true,
+              returnByValue: true,
+              includeCommandLineAPI: true
+            }
+          );
+        })
+        .then(function(response) {
+          // Always detach debugger
+          return chrome.debugger.detach({ tabId: tabId })
+            .catch(function() {})
+            .then(function() {
+              if (response.exceptionDetails) {
+                throw new Error('User script error: ' + (response.exceptionDetails.text || 'Unknown error'));
+              }
+              return response.result ? response.result.value : undefined;
+            });
+        })
+        .catch(function(error) {
+          // Try to detach on error
+          return chrome.debugger.detach({ tabId: tabId })
+            .catch(function() {})
+            .then(function() {
+              throw error;
+            });
+        });
+    }
+
+    // Safe methods allowed in MAIN world (read-only) - for method-based API
+    var MAIN_WORLD_SAFE_METHODS = ['getText', 'exists', 'getHTML', 'getOuterHTML'];
+
     messageHandlers.set('js.execute', function(payload, instanceId) {
       var code = payload && payload.code;
+      var method = payload && payload.method;
+      var args = payload && payload.args;
       var unsafe = payload && payload.unsafe;
+      var timeout = (payload && payload.timeout) || 5000;
 
-      if (unsafe && !extensionConfig.unsafeMode) {
-        return Promise.reject(new Error('Unsafe mode not enabled'));
-      }
+      // Two modes: arbitrary code execution OR method-based API
+      if (code && typeof code === 'string') {
+        // ARBITRARY CODE EXECUTION - Main feature!
+        if (unsafe && !extensionConfig.unsafeMode) {
+          return Promise.reject(new Error('Unsafe mode not enabled'));
+        }
 
-      // SECURITY: Validate MAIN world code execution
-      if (unsafe && !validateMainWorldCode(code)) {
-        return Promise.reject(new Error(
-          'Code execution rejected: not in MAIN world allowlist. ' +
-          'Only read-only property access and safe selectors are permitted.'
-        ));
-      }
-
-      return ensureActiveTab(null, instanceId).then(function(tabId) {
-        setInstanceActiveTab(instanceId, tabId);
-        return chrome.scripting.executeScript({
-          target: { tabId: tabId },
-          func: new Function('return ' + code),
-          world: unsafe ? 'MAIN' : 'ISOLATED'
+        return ensureActiveTab(null, instanceId).then(function(tabId) {
+          setInstanceActiveTab(instanceId, tabId);
+          return runUserCode(tabId, code, args, unsafe, timeout);
+        }).then(function(value) {
+          return { result: value };
         });
-      }).then(function(result) {
-        return { result: result[0].result };
-      });
+      }
+
+      if (method && typeof method === 'string') {
+        // METHOD-BASED API - For pre-defined helpers
+        if (!Array.isArray(args)) {
+          args = args ? [args] : [];
+        }
+
+        if (unsafe && !extensionConfig.unsafeMode) {
+          return Promise.reject(new Error('Unsafe mode not enabled'));
+        }
+
+        // SECURITY: Validate MAIN world method execution
+        if (unsafe && MAIN_WORLD_SAFE_METHODS.indexOf(method) === -1) {
+          return Promise.reject(new Error(
+            'Method "' + method + '" not allowed in MAIN world. ' +
+            'Only read-only methods are permitted: ' + MAIN_WORLD_SAFE_METHODS.join(', ')
+          ));
+        }
+
+        return ensureActiveTab(null, instanceId).then(function(tabId) {
+          setInstanceActiveTab(instanceId, tabId);
+          return ensurePageApi(tabId).then(function() {
+            return chrome.scripting.executeScript({
+              target: { tabId: tabId },
+              world: unsafe ? 'MAIN' : 'ISOLATED',
+              func: function(m, a) {
+                if (!window.__mcpApi || typeof window.__mcpApi[m] !== 'function') {
+                  throw new Error('API method not found: ' + m);
+                }
+                return window.__mcpApi[m].apply(window.__mcpApi, a);
+              },
+              args: [method, args]
+            });
+          });
+        }).then(function(result) {
+          return { result: result && result[0] && result[0].result };
+        });
+      }
+
+      return Promise.reject(new Error('js.execute requires either "code" or "method"'));
     });
 
     messageHandlers.set('dom.select', function(payload, instanceId) {
