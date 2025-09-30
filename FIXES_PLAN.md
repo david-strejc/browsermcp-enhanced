@@ -973,7 +973,8 @@ _This section will be updated as we progress_
 
 _Git tags will be created at major milestones_
 
-- [ ] `v1.20.4-review-baseline` - Before any fixes
+- [x] `v1.20.4-review-baseline` - Before any fixes ✅ CREATED
+- [x] `v1.20.5-step1.1-complete` - Port range fix ✅ CREATED
 - [ ] `v1.20.5-phase1-complete` - After all P0 fixes
 - [ ] `v1.20.6-phase2-complete` - After all P1 fixes
 - [ ] `v1.20.7-phase3-complete` - After security hardening
