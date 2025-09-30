@@ -96,20 +96,22 @@ export class PortRegistryManager {
     }
   }
 
-  private readRegistry(): PortRegistry {
+  private async readRegistry(): Promise<PortRegistry> {
     try {
-      if (fs.existsSync(REGISTRY_FILE)) {
-        const data = fs.readFileSync(REGISTRY_FILE, 'utf-8');
-        return JSON.parse(data);
+      const data = await fs.readFile(REGISTRY_FILE, 'utf-8');
+      return JSON.parse(data);
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        // File doesn't exist yet - return empty registry
+        return { instances: [] };
       }
-    } catch (err) {
       console.error('Failed to read registry:', err);
+      return { instances: [] };
     }
-    return { instances: [] };
   }
 
-  private writeRegistry(registry: PortRegistry): void {
-    fs.writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2));
+  private async writeRegistry(registry: PortRegistry): Promise<void> {
+    await fs.writeFile(REGISTRY_FILE, JSON.stringify(registry, null, 2));
   }
 
   private cleanStaleEntries(registry: PortRegistry): PortRegistry {
@@ -135,7 +137,7 @@ export class PortRegistryManager {
     await this.acquireLock();
 
     try {
-      let registry = this.readRegistry();
+      let registry = await this.readRegistry();
       registry = this.cleanStaleEntries(registry);
 
       // Find an available port
@@ -157,7 +159,7 @@ export class PortRegistryManager {
         };
 
         registry.instances.push(entry);
-        this.writeRegistry(registry);
+        await this.writeRegistry(registry);
 
         this.port = port;
         this.startHeartbeat();
@@ -183,14 +185,14 @@ export class PortRegistryManager {
 
       await this.acquireLock();
       try {
-        let registry = this.readRegistry();
+        let registry = await this.readRegistry();
         const entry = registry.instances.find(
           e => e.instanceId === this.instanceId && e.port === this.port
         );
 
         if (entry) {
           entry.lastHeartbeat = Date.now();
-          this.writeRegistry(registry);
+          await this.writeRegistry(registry);
         }
       } finally {
         await this.releaseLock();
@@ -208,11 +210,11 @@ export class PortRegistryManager {
 
     await this.acquireLock();
     try {
-      let registry = this.readRegistry();
+      let registry = await this.readRegistry();
       registry.instances = registry.instances.filter(
         entry => !(entry.instanceId === this.instanceId && entry.port === this.port)
       );
-      this.writeRegistry(registry);
+      await this.writeRegistry(registry);
 
       console.log(`[PortRegistry] Released port ${this.port} for instance ${this.instanceId}`);
     } finally {
@@ -236,9 +238,9 @@ export class PortRegistryManager {
     await manager.acquireLock();
 
     try {
-      let registry = manager.readRegistry();
+      let registry = await manager.readRegistry();
       registry = manager.cleanStaleEntries(registry);
-      manager.writeRegistry(registry);
+      await manager.writeRegistry(registry);
       return registry.instances;
     } finally {
       await manager.releaseLock();
