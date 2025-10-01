@@ -14,7 +14,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 EXTENSION_ID="YOUR_EXTENSION_ID" # Will be detected
-CHROME_EXT_DIR="/home/david/.local/lib/browsermcp-enhanced/chrome-extension"
+CHROME_EXT_DIR="${CHROME_EXT_DIR:-$HOME/.local/lib/browsermcp-enhanced/chrome-extension}"
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Chrome Extension Force Reload Script${NC}"

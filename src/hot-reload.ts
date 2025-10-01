@@ -37,7 +37,7 @@ const DEFAULT_OPTIONS: Required<HotReloadOptions> = {
 
 // SECURITY: Deploy path configuration with validation
 const DEPLOY_BASE_PATH = process.env.BROWSERMCP_DEPLOY_PATH ||
-                         '/home/david/.local/lib/browsermcp-enhanced';
+                         path.join(process.env.HOME || '', '.local/lib/browsermcp-enhanced');
 
 let isReloading = false;
 let debounceTimer: NodeJS.Timeout | null = null;

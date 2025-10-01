@@ -8,7 +8,7 @@ set -u  # Exit on undefined variable
 
 # ========== CONFIGURATION ==========
 # These can be overridden with environment variables
-MCP_SERVER_DIR="${MCP_SERVER_DIR:-/home/david/.local/lib/browsermcp-enhanced}"
+MCP_SERVER_DIR="${MCP_SERVER_DIR:-$HOME/.local/lib/browsermcp-enhanced}"
 CHROME_EXT_DIR="${CHROME_EXT_DIR:-$MCP_SERVER_DIR/chrome-extension}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/.local/backups/browsermcp-enhanced}"
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
