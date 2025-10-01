@@ -1,5 +1,10 @@
-// Offscreen document for image processing
+// Offscreen document for image processing ONLY
+// WebSocket connections are now handled in background service worker
+console.log('[Offscreen] Image processing worker initialized');
+
 chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+  console.log('[Offscreen] Received message:', request.type);
+
   if (request.type === 'process-image') {
     try {
       const result = await processImage(request.data);
@@ -15,6 +20,8 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
       chrome.runtime.sendMessage({ type: 'stitch-error', error: error.message });
     }
   }
+
+  return true; // Keep message channel open for async responses
 });
 
 async function processImage(params) {
