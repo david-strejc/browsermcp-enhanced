@@ -40,7 +40,24 @@ export class Context {
     return this._ws;
   }
 
-  set ws(ws: WebSocket) {
+  set ws(ws: WebSocket | undefined) {
+    this._ws = ws;
+    if (ws) {
+      this._lastConnectionTime = Date.now();
+      this._connectionAttempts = 0;
+    }
+  }
+
+  hasWebSocket(): boolean {
+    return !!this._ws;
+  }
+
+  // Safe getter that doesn't throw
+  getWebSocketOrNull(): WebSocket | undefined {
+    return this._ws;
+  }
+
+  private _originalWsSetter(ws: WebSocket) {
     this._ws = ws;
     this._lastConnectionTime = Date.now();
     this._connectionAttempts = 0;

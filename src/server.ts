@@ -18,10 +18,11 @@ type Options = {
   version: string;
   tools: Tool[];
   resources: Resource[];
+  skipWebSocket?: boolean; // Skip WebSocket creation for HTTP mode
 };
 
 export async function createServerWithTools(options: Options): Promise<Server> {
-  const { name, version, tools, resources } = options;
+  const { name, version, tools, resources, skipWebSocket = false } = options;
 
   // Build toolbox for inter-tool invocation (shared across all connections)
   const toolbox: Record<string, Tool> = {};
@@ -39,6 +40,86 @@ export async function createServerWithTools(options: Options): Promise<Server> {
     },
   );
 
+  // Only create WebSocket server for stdio mode
+  // HTTP mode creates per-instance WebSocket servers in index-http.ts
+  if (skipWebSocket) {
+    // HTTP mode - WebSocket servers created per-instance
+    console.log('[BrowserMCP] HTTP mode: WebSocket servers will be created per Claude instance');
+
+    server.setRequestHandler(ListToolsRequestSchema, async () => {
+      return { tools: tools.map((tool) => tool.schema) };
+    });
+
+    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      return { resources: resources.map((resource) => resource.schema) };
+    });
+
+    server.setRequestHandler(CallToolRequestSchema, async (request, meta) => {
+      const tool = tools.find((tool) => tool.schema.name === request.params.name);
+      if (!tool) {
+        return {
+          content: [
+            { type: "text", text: `Tool "${request.params.name}" not found` },
+          ],
+          isError: true,
+        };
+      }
+
+      // Get context for current request (socket-based instance detection)
+      const { getCurrentContext } = await import('./index-http.js');
+      const context = getCurrentContext();
+
+      if (!context) {
+        return {
+          content: [
+            { type: "text", text: "No context found for this Claude instance." },
+          ],
+          isError: true,
+        };
+      }
+
+      if (!context.ws) {
+        return {
+          content: [
+            { type: "text", text: "No browser connection. Open a browser window and the extension will connect automatically." },
+          ],
+          isError: true,
+        };
+      }
+
+      // Ensure context has toolbox
+      if (!context.toolbox) {
+        context.toolbox = toolbox;
+      }
+
+      try {
+        const result = await tool.handle(context, request.params.arguments ?? {});
+        return result;
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error executing tool: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    });
+
+    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      const resource = resources.find((r) => r.schema.uri === request.params.uri);
+      if (!resource) {
+        throw new Error(`Resource not found: ${request.params.uri}`);
+      }
+      return await resource.read();
+    });
+
+    return server;
+  }
+
+  // Stdio mode - create single WebSocket server
   const { server: wss, port, instanceId } = await createWebSocketServer();
 
   // CRITICAL FIX: Track current active context

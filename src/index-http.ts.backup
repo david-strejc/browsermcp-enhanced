@@ -1,0 +1,254 @@
+#!/usr/bin/env node
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer as createHttpServer } from "node:http";
+import { program } from "commander";
+import { parse as parseUrl } from "node:url";
+import type { WebSocketServer } from "ws";
+
+import type { Resource } from "./resources/resource";
+import { createServerWithTools } from "./server";
+import { enableHotReload } from "./hot-reload";
+import { browser_navigate } from "./tools/navigation-unified";
+import { pressKey, wait } from "./tools/common";
+import * as custom from "./tools/custom";
+import * as snapshot from "./tools/snapshot";
+import { browser_tab } from "./tools/tabs-unified";
+import { browser_debugger } from "./tools/debugger-unified";
+import { executeJS } from "./tools/code-execution";
+import { fileUploadTools } from "./tools/file-upload";
+import { browser_save_hint, browser_get_hints } from "./hints/index";
+import type { Tool } from "./tools/tool";
+import { createWebSocketServer } from "./ws";
+import type { Context } from "./context";
+
+import {
+  browserScroll,
+  browserQuery,
+  browserFillForm
+} from "./tools/safe-mode-enhanced";
+
+import packageJSON from "../package.json";
+
+const commonTools: Tool[] = [pressKey, wait];
+const customTools: Tool[] = [custom.getConsoleLogs, custom.screenshot];
+const tabTools: Tool[] = [browser_tab];
+const scaffoldTools: Tool[] = [];
+const codeExecutionTools: Tool[] = [executeJS];
+const hintTools: Tool[] = [browser_save_hint, browser_get_hints];
+const helperTools: Tool[] = [];
+const safeModeEnhancedTools: Tool[] = [browserScroll, browserQuery, browserFillForm];
+const batchOperationTools: Tool[] = [];
+const stabilityTools: Tool[] = [];
+
+const snapshotTools: Tool[] = [
+  browser_navigate,
+  snapshot.snapshot,
+  snapshot.click,
+  snapshot.hover,
+  snapshot.type,
+  snapshot.selectOption,
+  ...commonTools,
+  ...customTools,
+  ...tabTools,
+  browser_debugger,
+  ...scaffoldTools,
+  ...codeExecutionTools,
+  ...fileUploadTools,
+  ...hintTools,
+  ...helperTools,
+  ...safeModeEnhancedTools,
+  ...batchOperationTools,
+  ...stabilityTools,
+];
+
+const resources: Resource[] = [];
+
+async function createServer(): Promise<Server> {
+  return createServerWithTools({
+    name: "browsermcp-enhanced",
+    version: packageJSON.version,
+    tools: snapshotTools,
+    resources,
+    skipWebSocket: true, // HTTP mode handles WebSocket servers per-instance
+  });
+}
+
+// Multi-instance registry: browser window ID → WebSocket server
+interface InstanceRecord {
+  wss: WebSocketServer;
+  port: number;
+  instanceId: string;
+  contexts: Map<any, Context>;
+  windowId: string;
+  activeContext: Context | null; // Current active context for this window
+}
+
+const instanceRegistry = new Map<string, InstanceRecord>(); // windowId → InstanceRecord
+
+// Global context registry - allows server.ts to find the right context
+// In HTTP mode, we don't know which browser window is making the request,
+// so we track the most recent active context and use that as fallback
+let globalActiveContext: Context | null = null;
+
+export function getActiveContext(): Context | null {
+  return globalActiveContext;
+}
+
+export function setActiveContext(context: Context | null) {
+  globalActiveContext = context;
+}
+
+program
+  .version("Version " + packageJSON.version)
+  .name(packageJSON.name + "-http")
+  .option("-p, --port <number>", "HTTP port to listen on", "3000")
+  .action(async (options) => {
+    const mcpServer = await createServer();
+    const port = parseInt(options.port, 10);
+
+    // Enable hot reload in development mode
+    if (process.env.NODE_ENV === 'development' || process.env.HOT_RELOAD === 'true') {
+      console.error('[BrowserMCP HTTP] Hot reload enabled - edit any .ts file to trigger rebuild and respawn');
+      const watchPath = process.env.HOT_RELOAD_WATCH_PATH || '/home/david/Work/Programming/browsermcp-enhanced/src';
+      console.error(`[BrowserMCP HTTP] Watching: ${watchPath}`);
+      enableHotReload({
+        verbose: true,
+        debounceMs: 500,
+        watchPath: watchPath
+      });
+    }
+
+    // Create a single transport for the server (STATELESS mode for hot-reload compatibility)
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,  // Stateless mode - no session IDs
+    });
+
+    // Connect transport to MCP server once
+    await mcpServer.connect(transport);
+
+    // Create HTTP server with lazy WebSocket allocation
+    const httpServer = createHttpServer(async (req, res) => {
+      const parsedUrl = parseUrl(req.url || '', true);
+
+      // Handle /allocate endpoint for browser extension
+      if (parsedUrl.pathname === '/allocate') {
+        const windowId = parsedUrl.query.wid as string | undefined;
+
+        if (!windowId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'missing wid parameter' }));
+          return;
+        }
+
+        // Check if this window already has an allocation
+        let record = instanceRegistry.get(windowId);
+
+        if (!record) {
+          // Allocate new WebSocket server for this browser window
+          try {
+            console.error(`[BrowserMCP HTTP] New browser window allocation request: ${windowId}`);
+            const { server: wss, port: wsPort, instanceId } = await createWebSocketServer();
+
+            record = {
+              wss,
+              port: wsPort,
+              instanceId,
+              contexts: new Map(),
+              windowId,
+              activeContext: null
+            };
+            instanceRegistry.set(windowId, record);
+
+            console.error(`[BrowserMCP HTTP] Allocated WebSocket port ${wsPort} for window ${windowId}`);
+            console.error(`[BrowserMCP HTTP] Active browser windows: ${instanceRegistry.size}`);
+
+            // Setup WebSocket connection handler
+            wss.on('connection', (websocket) => {
+              const Context = require('./context').Context;
+              const connectionContext = new Context();
+              connectionContext.ws = websocket;
+              connectionContext.instanceId = instanceId;
+              connectionContext.port = wsPort;
+              connectionContext.toolbox = require('./server').toolbox || {};
+
+              record!.contexts.set(websocket, connectionContext);
+              record!.activeContext = connectionContext;
+
+              // Set as global active context (fallback for when we can't determine window)
+              setActiveContext(connectionContext);
+
+              console.error(`[BrowserMCP HTTP] WebSocket connected for window ${windowId} (port ${wsPort})`);
+
+              // Send hello handshake
+              websocket.on('message', (data: Buffer) => {
+                try {
+                  const msg = JSON.parse(data.toString());
+                  if (msg.type === 'hello' && msg.wants === 'instanceId') {
+                    websocket.send(JSON.stringify({
+                      type: 'helloAck',
+                      instanceId: instanceId,
+                      port: wsPort
+                    }));
+                  }
+                } catch (err) {
+                  console.error('[BrowserMCP HTTP] WebSocket message error:', err);
+                }
+              });
+
+              websocket.on('close', () => {
+                console.error(`[BrowserMCP HTTP] WebSocket closed for window ${windowId}`);
+                record!.contexts.delete(websocket);
+
+                // If no more contexts, cleanup the instance
+                if (record!.contexts.size === 0) {
+                  console.error(`[BrowserMCP HTTP] Cleaning up window ${windowId} (no active contexts)`);
+                  record!.wss.close();
+                  instanceRegistry.delete(windowId);
+                  console.error(`[BrowserMCP HTTP] Active browser windows: ${instanceRegistry.size}`);
+                }
+              });
+            });
+          } catch (err) {
+            console.error('[BrowserMCP HTTP] Failed to create WebSocket server:', err);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Failed to allocate WebSocket server' }));
+            return;
+          }
+        }
+
+        // Return allocated port
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ port: record.port, instanceId: record.instanceId }));
+        return;
+      }
+
+      // Handle regular MCP requests
+      await transport.handleRequest(req, res);
+    });
+
+    httpServer.listen(port, () => {
+      console.error(`[BrowserMCP HTTP] Server listening on http://localhost:${port}/mcp`);
+      console.error(`[BrowserMCP HTTP] Allocation endpoint: http://localhost:${port}/allocate?wid=<windowId>`);
+      console.error(`[BrowserMCP HTTP] Version: ${packageJSON.version}`);
+      console.error(`[BrowserMCP HTTP] Lazy multi-instance mode: WebSocket allocated on-demand per browser window`);
+      console.error(`[BrowserMCP HTTP] Ready for Claude Desktop connections`);
+    });
+
+    // Graceful shutdown
+    process.on('SIGINT', async () => {
+      console.error('[BrowserMCP HTTP] Shutting down...');
+      httpServer.close();
+      await mcpServer.close();
+      process.exit(0);
+    });
+
+    process.on('SIGTERM', async () => {
+      console.error('[BrowserMCP HTTP] Shutting down...');
+      httpServer.close();
+      await mcpServer.close();
+      process.exit(0);
+    });
+  });
+
+program.parse(process.argv);
