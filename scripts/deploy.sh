@@ -13,8 +13,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-MCP_SERVER_DIR="/home/david/.local/lib/browsermcp-enhanced"
-CHROME_EXT_DIR="/home/david/.local/lib/browsermcp-enhanced/chrome-extension"
+MCP_SERVER_DIR="${MCP_SERVER_DIR:-$HOME/.local/lib/browsermcp-enhanced}"
+CHROME_EXT_DIR="${CHROME_EXT_DIR:-$MCP_SERVER_DIR/chrome-extension}"
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPTS_DIR="$CURRENT_DIR/scripts"
 

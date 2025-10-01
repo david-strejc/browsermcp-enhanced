@@ -7,7 +7,7 @@ set -e  # Exit on error
 set -u  # Exit on undefined variable
 
 # ========== CONFIGURATION ==========
-MCP_SERVER_DIR="${MCP_SERVER_DIR:-/home/david/.local/lib/browsermcp-enhanced}"
+MCP_SERVER_DIR="${MCP_SERVER_DIR:-$HOME/.local/lib/browsermcp-enhanced}"
 FIREFOX_EXT_DIR="${FIREFOX_EXT_DIR:-$MCP_SERVER_DIR/firefox-extension}"
 CHROME_EXT_DIR="${CHROME_EXT_DIR:-$MCP_SERVER_DIR/chrome-extension}"
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

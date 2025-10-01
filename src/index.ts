@@ -125,7 +125,7 @@ program
     // Enable hot reload in development mode
     if (process.env.NODE_ENV === 'development' || process.env.HOT_RELOAD === 'true') {
       console.error('[BrowserMCP] Hot reload enabled - edit any .ts file to trigger rebuild and respawn');
-      const watchPath = process.env.HOT_RELOAD_WATCH_PATH || '/home/david/Work/Programming/browsermcp-enhanced/src';
+      const watchPath = process.env.HOT_RELOAD_WATCH_PATH || process.cwd() + '/src';
       console.error(`[BrowserMCP] Watching: ${watchPath}`);
       enableHotReload({
         verbose: true,
