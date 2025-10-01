@@ -47,18 +47,17 @@
     this.tabLocks = new Map(); // tabId -> timestamp
     this.tabLockTimestamps = new Map();
 
-    // Initialize
-    this.initialize();
+    // Note: Call initialize() manually after construction for async setup
   }
 
   /**
    * Initialize connection manager
    */
-  UnifiedConnectionManager.prototype.initialize = function() {
+  UnifiedConnectionManager.prototype.initialize = async function() {
     log('Initializing unified connection manager...');
 
-    // Load or generate instance ID
-    this.loadInstanceId();
+    // Load or generate instance ID (async)
+    await this.loadInstanceId();
 
     // Start connection
     this.connect();
@@ -78,12 +77,12 @@
   /**
    * Load instance ID from storage or generate new one
    */
-  UnifiedConnectionManager.prototype.loadInstanceId = function() {
-    // Try to load from storage
+  UnifiedConnectionManager.prototype.loadInstanceId = async function() {
+    // Try to load from chrome.storage.local (service worker compatible)
     try {
-      const stored = localStorage.getItem('browsermcp_instance_id');
-      if (stored) {
-        this.instanceId = stored;
+      const result = await chrome.storage.local.get(['browsermcp_instance_id']);
+      if (result.browsermcp_instance_id) {
+        this.instanceId = result.browsermcp_instance_id;
         log('Loaded instance ID from storage:', this.instanceId);
         return;
       }
@@ -97,7 +96,7 @@
 
     // Save to storage
     try {
-      localStorage.setItem('browsermcp_instance_id', this.instanceId);
+      await chrome.storage.local.set({ browsermcp_instance_id: this.instanceId });
     } catch (err) {
       warn('Failed to save instance ID to storage:', err);
     }
@@ -347,13 +346,12 @@
     this.connecting = false;
   };
 
-  // Export as global
-  window.UnifiedConnectionManager = UnifiedConnectionManager;
+  // Export as global (use self for service worker compatibility)
+  self.UnifiedConnectionManager = UnifiedConnectionManager;
 
-  // Create singleton instance
-  if (!window.unifiedConnectionManager) {
-    window.unifiedConnectionManager = new UnifiedConnectionManager();
-    log('Unified connection manager initialized');
-  }
+  // Note: Instance creation is handled by background-unified.js
+  // Don't auto-create singleton here since service workers need explicit initialization
+
+  log('UnifiedConnectionManager class defined and ready');
 
 })();

@@ -13,16 +13,16 @@
   const UnifiedMode = {
     connectionManager: null,
 
-    init() {
+    async init() {
       log('Initializing Unified Mode...');
 
       // Create unified connection manager (defined in unified-connection-manager.js)
-      if (typeof window !== 'undefined' && window.unifiedConnectionManager) {
-        this.connectionManager = window.unifiedConnectionManager;
-        log('Using existing unified connection manager');
-      } else if (typeof UnifiedConnectionManager !== 'undefined') {
-        this.connectionManager = new UnifiedConnectionManager();
+      if (typeof self.UnifiedConnectionManager !== 'undefined') {
+        this.connectionManager = new self.UnifiedConnectionManager();
         log('Created new unified connection manager');
+
+        // Wait for initialization (loads instance ID)
+        await this.connectionManager.initialize();
       } else {
         error('UnifiedConnectionManager not found! Make sure unified-connection-manager.js is loaded.');
         return;
