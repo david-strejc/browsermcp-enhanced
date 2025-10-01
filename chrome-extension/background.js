@@ -4,9 +4,11 @@
 // Static imports - must be at top level for Chrome service workers
 // All scripts must be imported here, including dependencies
 importScripts(
+  'unified-connection-manager.js',  // Unified single-port connection (NEW)
   'multi-instance-manager.js',      // Required by background-multi-instance.js
   'background-legacy-wrapper.js',   // defines self.LegacyMode (controller pattern)
-  'background-multi-instance.js'    // defines self.MultiInstanceMode
+  'background-multi-instance.js',   // defines self.MultiInstanceMode
+  'background-unified.js'           // defines self.UnifiedMode (NEW)
 );
 
 const TAG = '[Background]';
@@ -38,25 +40,26 @@ function activate(multiInstanceEnabled) {
 
   // Activate new controller
   try {
-    activeController = multiInstanceEnabled ? self.MultiInstanceMode : self.LegacyMode;
+    // NEW: Use UnifiedMode by default (single-listener architecture)
+    activeController = multiInstanceEnabled ? self.MultiInstanceMode : self.UnifiedMode;
 
     if (!activeController) {
-      throw new Error(`Mode controller not found for ${multiInstanceEnabled ? 'multi' : 'single'}-instance`);
+      throw new Error(`Mode controller not found for ${multiInstanceEnabled ? 'multi' : 'unified'}-instance`);
     }
 
     activeController.init();
-    log(`Successfully activated ${multiInstanceEnabled ? 'multi' : 'single'}-instance mode`);
+    log(`Successfully activated ${multiInstanceEnabled ? 'multi' : 'unified'}-instance mode`);
   } catch (err) {
     error('Failed to activate mode:', err);
     error('Stack trace:', err.stack);
 
-    // Try fallback to legacy mode
-    if (multiInstanceEnabled && self.LegacyMode) {
-      warn('Attempting fallback to legacy mode...');
+    // Try fallback to unified mode
+    if (multiInstanceEnabled && self.UnifiedMode) {
+      warn('Attempting fallback to unified mode...');
       try {
-        activeController = self.LegacyMode;
+        activeController = self.UnifiedMode;
         activeController.init();
-        warn('Fallback to legacy mode successful');
+        warn('Fallback to unified mode successful');
       } catch (fallbackErr) {
         error('Fallback also failed:', fallbackErr);
       }
@@ -173,7 +176,9 @@ if (self.__DEBUG) {
   setInterval(() => {
     log('Service worker heartbeat - still alive');
     if (activeController) {
-      log('Active mode:', activeController === self.MultiInstanceMode ? 'multi-instance' : 'single-instance');
+      const mode = activeController === self.MultiInstanceMode ? 'multi-instance' :
+                   activeController === self.UnifiedMode ? 'unified' : 'legacy';
+      log('Active mode:', mode);
     }
   }, 30000); // Every 30 seconds
 }
