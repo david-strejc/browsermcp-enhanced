@@ -233,8 +233,13 @@
     }
 
     // Dispatch to registered handlers
-    const handlers = this.messageHandlers.get(msg.type) || [];
-    for (const handler of handlers) {
+    // First try specific message type handlers
+    const specificHandlers = this.messageHandlers.get(msg.type) || [];
+    // Then add wildcard handlers (catch-all)
+    const wildcardHandlers = this.messageHandlers.get('*') || [];
+    const allHandlers = [...specificHandlers, ...wildcardHandlers];
+
+    for (const handler of allHandlers) {
       try {
         handler(msg);
       } catch (err) {

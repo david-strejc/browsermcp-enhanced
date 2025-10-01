@@ -1,6 +1,6 @@
 {
   "name": "@browsermcp/mcp-enhanced",
-  "version": "1.27.1",
+  "version": "1.27.2",
   "description": "Enhanced MCP server for browser automation with improved element selection, tab management, debugging capabilities, and token optimization",
   "author": "BrowserMCP Enhanced Contributors",
   "homepage": "https://github.com/browsermcp/mcp-enhanced",
