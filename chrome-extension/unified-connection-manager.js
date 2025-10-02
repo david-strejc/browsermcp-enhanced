@@ -43,10 +43,6 @@
     // Message handlers
     this.messageHandlers = new Map();
 
-    // Tab locks (local state)
-    this.tabLocks = new Map(); // tabId -> timestamp
-    this.tabLockTimestamps = new Map();
-
     // Note: Call initialize() manually after construction for async setup
   }
 
@@ -62,16 +58,7 @@
     // Start connection
     this.connect();
 
-    // Initialize badge
     this.updateBadge();
-
-    // Setup periodic connection check
-    setInterval(() => {
-      if (!this.isConnected()) {
-        log('Connection check: not connected, attempting reconnect');
-        this.connect();
-      }
-    }, 10000); // Check every 10 seconds
   };
 
   /**

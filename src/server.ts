@@ -36,6 +36,7 @@ export async function createServerWithTools(options: Options): Promise<Server> {
       capabilities: {
         tools: {},
         resources: {},
+        logging: {},
       },
     },
   );
@@ -78,7 +79,12 @@ export async function createServerWithTools(options: Options): Promise<Server> {
         };
       }
 
-      if (!context.ws) {
+      const hasWebSocket = typeof context.hasWs === 'function' ? context.hasWs() : Boolean((context as any).ws);
+      const canUseDaemon = typeof (context as any).canUseDaemonTransport === 'function'
+        ? (context as any).canUseDaemonTransport()
+        : false;
+
+      if (!hasWebSocket && !canUseDaemon) {
         return {
           content: [
             { type: "text", text: "No browser connection. Open a browser window and the extension will connect automatically." },

@@ -1,4 +1,5 @@
 import { createSocketMessageSender, BrowserMCPError } from "./messaging/ws/sender";
+import { createDaemonMessageSender } from "./messaging/daemon/sender";
 import { WebSocket } from "ws";
 
 import { mcpConfig } from "./config/mcp.config";
@@ -26,6 +27,9 @@ export class Context {
   private _connectionAttempts: number = 0;
   private _lastConnectionTime: number | undefined;
   private _toolbox: Record<string, Tool> = {};
+  private _daemonMessages: any[] = [];
+  private _daemonSender: ReturnType<typeof createDaemonMessageSender<SocketMessageMap>> | null = null;
+  private _daemonUrl: string | undefined;
   public instanceId: string = '';
   public port: number = 0;
 
@@ -112,13 +116,28 @@ export class Context {
       }
     };
 
-    const { sendSocketMessage } = createSocketMessageSender<SocketMessageMap>(
-      this.ws,
-      this.instanceId // Pass instanceId to the sender
-    );
-
     try {
-      return await sendSocketMessage(type, payload, enhancedOptions);
+      if (this.hasWs()) {
+        const { sendSocketMessage } = createSocketMessageSender<SocketMessageMap>(
+          this.ws,
+          this.instanceId
+        );
+        return await sendSocketMessage(type, payload, enhancedOptions);
+      }
+
+      const daemonSender = this.ensureDaemonSender();
+      const resp = await daemonSender.sendDaemonMessage(type, payload, {
+        timeoutMs: enhancedOptions.timeoutMs,
+        retry: enhancedOptions.retry,
+        tabId: this._currentTabId,
+      });
+      // If daemon response includes a tabId, persist it for subsequent commands
+      const anyResp: any = resp as any;
+      if (anyResp && (anyResp.tabId !== undefined || (anyResp._debug && anyResp._debug.tabId !== undefined))) {
+        const tabIdVal = anyResp.tabId ?? anyResp._debug?.tabId;
+        this._currentTabId = typeof tabIdVal === 'number' ? String(tabIdVal) : String(tabIdVal);
+      }
+      return resp;
     } catch (e) {
       // Enhanced error handling with more context
       if (e instanceof BrowserMCPError) {
@@ -199,6 +218,48 @@ export class Context {
 
   set toolbox(tools: Record<string, Tool>) {
     this._toolbox = tools;
+  }
+
+  configureDaemon(daemonUrl?: string) {
+    this._daemonUrl = daemonUrl ?? "http://127.0.0.1:8765";
+    this._daemonSender = null;
+  }
+
+  private ensureDaemonSender() {
+    if (!this.instanceId) {
+      throw new BrowserMCPError(
+        "Instance ID not set before daemon messaging",
+        "NO_INSTANCE",
+        true
+      );
+    }
+
+    if (!this._daemonSender) {
+      this._daemonSender = createDaemonMessageSender<SocketMessageMap>(
+        this.instanceId,
+        this._daemonUrl
+      );
+    }
+
+    return this._daemonSender;
+  }
+
+  enqueueDaemonMessage(message: any) {
+    this._daemonMessages.push(message);
+  }
+
+  drainDaemonMessages(): any[] {
+    const messages = [...this._daemonMessages];
+    this._daemonMessages.length = 0;
+    return messages;
+  }
+
+  get daemonMessageCount(): number {
+    return this._daemonMessages.length;
+  }
+
+  canUseDaemonTransport(): boolean {
+    return !!this._daemonUrl;
   }
 
   // Call another tool from within a tool
