@@ -129,14 +129,8 @@ export class Context {
       const resp = await daemonSender.sendDaemonMessage(type, payload, {
         timeoutMs: enhancedOptions.timeoutMs,
         retry: enhancedOptions.retry,
-        tabId: this._currentTabId,
+        tabId: undefined, // Don't send sticky tabId - let daemon handle tab management
       });
-      // If daemon response includes a tabId, persist it for subsequent commands
-      const anyResp: any = resp as any;
-      if (anyResp && (anyResp.tabId !== undefined || (anyResp._debug && anyResp._debug.tabId !== undefined))) {
-        const tabIdVal = anyResp.tabId ?? anyResp._debug?.tabId;
-        this._currentTabId = typeof tabIdVal === 'number' ? String(tabIdVal) : String(tabIdVal);
-      }
       return resp;
     } catch (e) {
       // Enhanced error handling with more context

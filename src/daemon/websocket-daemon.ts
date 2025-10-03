@@ -253,18 +253,27 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
     }
   }
 
-  // Tab ownership validation
+  // Tab ownership validation and auto-tab creation
+  let useExplicitTab = true; // Track if we should use explicit tabId
+
   if (tabId) {
     const owner = tabOwner.get(tabId);
     if (owner && owner !== sessionId) {
-      warn(`Tab ${tabId} is owned by session ${owner}, not ${sessionId}`);
-      res.writeHead(409, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Tab owned by another session" }));
-      return;
+      // Tab owned by another session - if this is a NEW session with no tabs, create new tab
+      if (session.tabIds.length === 0) {
+        log(`Tab ${tabId} owned by ${owner}, session ${sessionId} will create new tab`);
+        tabId = undefined; // Clear tabId
+        useExplicitTab = false; // Don't use currentTabId fallback
+      } else {
+        warn(`Tab ${tabId} is owned by session ${owner}, not ${sessionId}`);
+        res.writeHead(409, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Tab owned by another session" }));
+        return;
+      }
     }
 
     // Claim tab ownership if not set
-    if (!owner) {
+    if (tabId && !owner) {
       tabOwner.set(tabId, sessionId);
       if (!session.tabIds.includes(tabId)) {
         session.tabIds.push(tabId);
@@ -307,7 +316,7 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
   // Generate globally unique wireId
   const wireId = randomUUID();
 
-  // Build command for queue
+  // Build command for queue - only use currentTabId fallback if we haven't explicitly cleared it
   const cmd: Command = {
     wireId,
     originId: String(originId),
@@ -315,7 +324,7 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
     type: "command",
     name: messageType,
     payload: command.payload ?? {},
-    tabId: tabId ?? session.currentTabId,
+    tabId: useExplicitTab ? (tabId ?? session.currentTabId) : tabId,
   };
 
   // FIFO queue: if busy, enqueue; otherwise execute immediately
@@ -421,22 +430,36 @@ wss.on("connection", (socket, request) => {
 
   socket.on("close", () => {
     log(`Extension disconnected for session ${sessionId}`);
-    const current = sessions.get(sessionId);
-    if (current && current.socket === socket) {
-      sessions.delete(sessionId);
-      current.pendingCmds.forEach(({ reject, timeout }) => {
-        clearTimeout(timeout);
-        reject(new Error("Extension disconnected"));
-      });
 
-      // Clean up tab ownership
-      current.tabIds.forEach(tabId => {
-        const owner = tabOwner.get(tabId);
-        if (owner === sessionId) {
-          tabOwner.delete(tabId);
-        }
-      });
-    }
+    // CRITICAL: Remove ALL sessions using this WebSocket (session aliasing!)
+    const sessionsToDelete: string[] = [];
+    sessions.forEach((session, sid) => {
+      if (session.socket === socket) {
+        sessionsToDelete.push(sid);
+      }
+    });
+
+    sessionsToDelete.forEach(sid => {
+      const session = sessions.get(sid);
+      if (session) {
+        log(`Cleaning up session ${sid} due to WebSocket close`);
+        sessions.delete(sid);
+
+        // Reject pending commands
+        session.pendingCmds.forEach(({ reject, timeout }) => {
+          clearTimeout(timeout);
+          reject(new Error("Extension disconnected"));
+        });
+
+        // Clean up tab ownership
+        session.tabIds.forEach(tabId => {
+          const owner = tabOwner.get(tabId);
+          if (owner === sid) {
+            tabOwner.delete(tabId);
+          }
+        });
+      }
+    });
   });
 
   socket.on("error", (err) => {

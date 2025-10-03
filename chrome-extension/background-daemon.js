@@ -52,13 +52,22 @@
   }
 
   function registerHandlers() {
-    messageHandlers.set('browser_navigate', async ({ action = 'goto', url, snapshot = false }) => {
-      const tabId = await getActiveTabId();
+    messageHandlers.set('browser_navigate', async ({ action = 'goto', url, snapshot = false, _envelopeTabId }) => {
+      // Use envelope tabId if provided, otherwise get active tab
+      const tabId = _envelopeTabId !== undefined ? _envelopeTabId : await getActiveTabId();
+
       switch (action) {
         case 'goto': {
           if (!url) {
             throw new Error('browser_navigate requires url');
           }
+          // If tabId is undefined/null, create new tab
+          if (tabId === undefined || tabId === null) {
+            const newTab = await chrome.tabs.create({ url, active: true });
+            await waitForTabComplete(newTab.id);
+            return { url, tabId: newTab.id };
+          }
+
           await chrome.tabs.update(tabId, { url, active: true });
           await waitForTabComplete(tabId);
           return { url, tabId };
@@ -114,8 +123,8 @@
   async function handleMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
 
-    // Protocol v2: Extract envelope fields
-    const { wireId, sessionId, originId, type, name, payload } = msg;
+    // Protocol v2: Extract envelope fields (including tabId!)
+    const { wireId, sessionId, originId, type, name, payload, tabId } = msg;
 
     // Handle legacy format (id field) or Protocol v2 (wireId)
     const commandId = wireId || msg.id;
@@ -136,7 +145,9 @@
     }
 
     try {
-      const result = await handler(payload || msg.payload || {});
+      // Pass both payload AND tabId to handler
+      const handlerPayload = { ...(payload || msg.payload || {}), _envelopeTabId: tabId };
+      const result = await handler(handlerPayload);
       if (commandId) {
         // Protocol v2: Echo wireId and sessionId
         connectionManager.send({
