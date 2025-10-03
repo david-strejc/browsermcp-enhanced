@@ -131,6 +131,13 @@ export class Context {
         retry: enhancedOptions.retry,
         tabId: undefined, // Don't send sticky tabId - let daemon handle tab management
       });
+      // Learn currentTabId from daemon response if available
+      try {
+        const r: any = resp as any;
+        if (r && typeof r.tabId !== 'undefined' && r.tabId !== null) {
+          this._currentTabId = String(r.tabId);
+        }
+      } catch {}
       return resp;
     } catch (e) {
       // Enhanced error handling with more context

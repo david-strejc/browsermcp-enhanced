@@ -105,6 +105,24 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
     if (pending) {
       clearTimeout(pending.timeout);
       targetSession.pendingCmds.delete(wireId);
+      // Learn and persist tab ownership/current tab from response
+      try {
+        const tabFromResponse = (data && (data.tabId ?? (data.payload && data.payload.tabId)))
+          ?? envelope.tabId
+          ?? (payload && (payload.tabId ?? payload.targetTabId));
+        if (tabFromResponse != null && targetSession) {
+          const tabKey = String(tabFromResponse);
+          const owner = tabOwner.get(tabKey);
+          if (!owner) {
+            tabOwner.set(tabKey, targetSession.sessionId);
+          }
+          if (!targetSession.tabIds.includes(tabKey)) {
+            targetSession.tabIds.push(tabKey);
+          }
+          targetSession.currentTabId = tabKey;
+        }
+      } catch {}
+
       pending.resolve(data ?? payload ?? envelope);
       return;
     } else {
