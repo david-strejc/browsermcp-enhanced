@@ -113,25 +113,48 @@
 
   async function handleMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
-    const handler = messageHandlers.get(msg.type);
+
+    // Protocol v2: Extract envelope fields
+    const { wireId, sessionId, originId, type, name, payload } = msg;
+
+    // Handle legacy format (id field) or Protocol v2 (wireId)
+    const commandId = wireId || msg.id;
+    const commandType = name || msg.type;
+
+    const handler = messageHandlers.get(commandType);
     if (!handler) {
-      if (msg.id) {
-        connectionManager.send({ type: 'response', id: msg.id, error: `Unhandled message type: ${msg.type}` });
+      if (commandId) {
+        connectionManager.send({
+          wireId: commandId,
+          sessionId,
+          originId,
+          type: 'response',
+          error: `Unhandled message type: ${commandType}`
+        });
       }
       return;
     }
 
     try {
-      const result = await handler(msg.payload || {});
-      if (msg.id) {
-        connectionManager.send({ type: 'response', id: msg.id, data: result });
+      const result = await handler(payload || msg.payload || {});
+      if (commandId) {
+        // Protocol v2: Echo wireId and sessionId
+        connectionManager.send({
+          wireId: commandId,
+          sessionId,
+          originId,
+          type: 'response',
+          data: result
+        });
       }
     } catch (err) {
       error('Handler failed:', err);
-      if (msg.id) {
+      if (commandId) {
         connectionManager.send({
+          wireId: commandId,
+          sessionId,
+          originId,
           type: 'response',
-          id: msg.id,
           error: err instanceof Error ? err.message : String(err)
         });
       }

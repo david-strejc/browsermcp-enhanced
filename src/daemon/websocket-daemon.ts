@@ -1,19 +1,38 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 
 interface PendingRequest {
+  originId?: string;
   resolve: (value: any) => void;
   reject: (reason?: any) => void;
   timeout: NodeJS.Timeout;
 }
 
+interface Command {
+  wireId: string;
+  originId?: string;
+  sessionId: string;
+  type: string;
+  name: string;
+  payload: any;
+  tabId?: string;
+}
+
 interface SessionRecord {
   sessionId: string;
   socket: WebSocket;
-  pending: Map<string, PendingRequest>;
+  pendingCmds: Map<string, PendingRequest>; // wireId → promise
+  tabIds: string[];
+  currentTabId?: string;
+  busy: boolean;
+  commandQueue: Command[];
   lastSeen: number;
 }
+
+// Global tab ownership tracking
+const tabOwner = new Map<string, string>(); // tabId → sessionId
 
 const DAEMON_PORT = parseInt(process.env.BROWSER_MCP_DAEMON_PORT || "8765", 10);
 const MCP_HTTP_URL = process.env.BROWSER_MCP_HTTP_URL || "http://127.0.0.1:3000";
@@ -64,9 +83,9 @@ async function forwardToMcp(sessionId: string, tabId: string | undefined, messag
 }
 
 function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawData) {
-  let message: any;
+  let envelope: any;
   try {
-    message = JSON.parse(rawData.toString());
+    envelope = JSON.parse(rawData.toString());
   } catch (err) {
     warn(`Invalid JSON from session ${session.sessionId}:`, err);
     return;
@@ -74,18 +93,24 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
 
   session.lastSeen = Date.now();
 
-  if (message?.type === "response" && message?.id !== undefined) {
-    const key = String(message.id);
-    const pending = session.pending.get(key);
+  // Protocol v2: Extract fields from envelope
+  const { wireId, sessionId, originId, type, data, payload, name } = envelope;
+
+  // Handle response to command
+  if (type === "response" && wireId) {
+    const pending = session.pendingCmds.get(wireId);
     if (pending) {
       clearTimeout(pending.timeout);
-      session.pending.delete(key);
-      pending.resolve(message.data ?? message.payload ?? message);
+      session.pendingCmds.delete(wireId);
+      pending.resolve(data ?? payload ?? envelope);
       return;
+    } else {
+      warn(`Received response for unknown wireId: ${wireId}`);
     }
   }
 
-  if (message?.type === "hello") {
+  // Handle legacy hello/ping for backward compatibility
+  if (type === "hello") {
     session.socket.send(JSON.stringify({
       type: "helloAck",
       instanceId: session.sessionId,
@@ -94,52 +119,131 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
     return;
   }
 
-  if (message?.type === "ping") {
+  if (type === "ping") {
     session.socket.send(JSON.stringify({
       type: "pong",
-      id: message.id,
+      id: envelope.id,
       timestamp: Date.now(),
     }));
     return;
   }
 
-  if (message?.type === "connected") {
+  if (type === "connected") {
     return; // informational
   }
 
-  const tabId = message?.tabId ?? message?.payload?.tabId;
-  forwardToMcp(session.sessionId, tabId, {
-    messageId: message.messageId ?? message.id ?? `daemon-${Date.now()}`,
-    type: message.type,
-    payload: message.payload ?? {},
-    tabId,
-    original: message,
+  // Handle unsolicited events (console, errors, etc.)
+  if (type === "event") {
+    const tabId = envelope.tabId ?? payload?.tabId;
+    forwardToMcp(session.sessionId, tabId, {
+      messageId: wireId ?? `daemon-${Date.now()}`,
+      type: "event",
+      name: name ?? "unknown",
+      payload: payload ?? {},
+      tabId,
+      original: envelope,
+    });
+    return;
+  }
+
+  // Unknown message type
+  warn(`Unknown message type from extension: ${type}`, envelope);
+}
+
+// Process next command in queue for a session
+async function processQueue(session: SessionRecord) {
+  if (session.busy || session.commandQueue.length === 0) {
+    return;
+  }
+
+  const command = session.commandQueue.shift()!;
+  session.busy = true;
+
+  try {
+    await executeCommand(session, command);
+  } catch (err) {
+    errorLog(`Failed to execute queued command:`, err);
+  } finally {
+    session.busy = false;
+    processQueue(session); // Process next command
+  }
+}
+
+// Execute a single command
+async function executeCommand(session: SessionRecord, command: Command): Promise<any> {
+  const { wireId, originId, sessionId, type, name, payload, tabId } = command;
+
+  const timeoutMs = Number(payload.timeoutMs ?? COMMAND_TIMEOUT_MS);
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      session.pendingCmds.delete(wireId);
+      reject(new Error("Timed out waiting for extension response"));
+    }, timeoutMs);
+
+    session.pendingCmds.set(wireId, {
+      originId,
+      resolve,
+      reject,
+      timeout,
+    });
+
+    // Build Protocol v2 envelope
+    const envelope = {
+      wireId,
+      originId,
+      sessionId,
+      type: "command",
+      name,
+      payload,
+      ...(tabId ? { tabId } : {}),
+    };
+
+    try {
+      session.socket.send(JSON.stringify(envelope));
+    } catch (err) {
+      const pending = session.pendingCmds.get(wireId);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        session.pendingCmds.delete(wireId);
+      }
+      reject(err);
+    }
   });
 }
 
 async function handleCommandRequest(req: any, res: any, sessionId: string, tabId: string | undefined) {
-  let session = sessions.get(sessionId);
+  const session = sessions.get(sessionId);
 
-  // If the exact session doesn't exist, try to use ANY connected session
-  // This handles the case where MCP creates a new session ID but the extension
-  // is already connected with a different (older) ID
+  // Protocol v2: NO FALLBACK - exact session match only
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
-    const connectedSessions = Array.from(sessions.values()).filter(
-      s => s.socket.readyState === WebSocket.OPEN
-    );
+    warn(`Command received for unknown/disconnected session ${sessionId}`);
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Session not connected" }));
+    return;
+  }
 
-    if (connectedSessions.length > 0) {
-      session = connectedSessions[0];
-      log(`Routing command for session ${sessionId} to connected extension ${session.sessionId}`);
-    } else {
-      warn(`Command received for missing session ${sessionId} and no fallback available`);
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Instance not connected" }));
+  // Tab ownership validation
+  if (tabId) {
+    const owner = tabOwner.get(tabId);
+    if (owner && owner !== sessionId) {
+      warn(`Tab ${tabId} is owned by session ${owner}, not ${sessionId}`);
+      res.writeHead(409, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Tab owned by another session" }));
       return;
+    }
+
+    // Claim tab ownership if not set
+    if (!owner) {
+      tabOwner.set(tabId, sessionId);
+      if (!session.tabIds.includes(tabId)) {
+        session.tabIds.push(tabId);
+      }
+      session.currentTabId = tabId;
     }
   }
 
-  log(`Command ${sessionId} received at daemon (${tabId ?? 'no-tab'})`);
+  log(`Command for session ${sessionId} received at daemon (tab: ${tabId ?? 'auto'})`);
 
   let body = "";
   for await (const chunk of req) {
@@ -161,59 +265,49 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
     return;
   }
 
-  const messageId = command.id ?? command.messageId;
+  const originId = command.id ?? command.messageId;
   const messageType = command.type;
 
-  if (messageId === undefined || !messageType) {
+  if (originId === undefined || !messageType) {
     res.writeHead(400, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Missing id or type" }));
     return;
   }
 
-  const timeoutMs = Number(command.timeoutMs ?? COMMAND_TIMEOUT_MS);
+  // Generate globally unique wireId
+  const wireId = randomUUID();
 
-  const pendingKey = String(messageId);
+  // Build command for queue
+  const cmd: Command = {
+    wireId,
+    originId: String(originId),
+    sessionId,
+    type: "command",
+    name: messageType,
+    payload: command.payload ?? {},
+    tabId: tabId ?? session.currentTabId,
+  };
 
-  const pendingPromise = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      session.pending.delete(pendingKey);
-      reject(new Error("Timed out waiting for extension response"));
-    }, timeoutMs);
-
-    session.pending.set(pendingKey, {
-      resolve,
-      reject,
-      timeout,
-    });
-  });
-
-  try {
-    const payloadToSend = {
-      id: messageId,
-      type: messageType,
-      payload: command.payload ?? {},
-      ...(tabId ? { tabId } : {}),
-    };
-
-    session.socket.send(JSON.stringify(payloadToSend));
-  } catch (err) {
-    const pending = session.pending.get(pendingKey);
-    if (pending) {
-      clearTimeout(pending.timeout);
-      session.pending.delete(pendingKey);
-    }
-    res.writeHead(500, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Failed to send command: ${(err as Error).message}` }));
+  // FIFO queue: if busy, enqueue; otherwise execute immediately
+  if (session.busy) {
+    session.commandQueue.push(cmd);
+    res.writeHead(202, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ status: "queued", wireId }));
     return;
   }
 
+  session.busy = true;
+
   try {
-    const result = await pendingPromise;
+    const result = await executeCommand(session, cmd);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ success: true, payload: result }));
   } catch (err) {
     res.writeHead(504, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: (err as Error).message }));
+  } finally {
+    session.busy = false;
+    processQueue(session); // Process next command if any
   }
 }
 
@@ -265,17 +359,29 @@ wss.on("connection", (socket, request) => {
 
   const existing = sessions.get(sessionId);
   if (existing) {
-    existing.pending.forEach(({ reject, timeout }) => {
+    existing.pendingCmds.forEach(({ reject, timeout }) => {
       clearTimeout(timeout);
       reject(new Error("Connection replaced"));
     });
     existing.socket.terminate();
+
+    // Clean up tab ownership
+    existing.tabIds.forEach(tabId => {
+      const owner = tabOwner.get(tabId);
+      if (owner === sessionId) {
+        tabOwner.delete(tabId);
+      }
+    });
   }
 
   const record: SessionRecord = {
     sessionId,
     socket,
-    pending: new Map(),
+    pendingCmds: new Map(),
+    tabIds: [],
+    currentTabId: undefined,
+    busy: false,
+    commandQueue: [],
     lastSeen: Date.now(),
   };
 
@@ -288,9 +394,17 @@ wss.on("connection", (socket, request) => {
     const current = sessions.get(sessionId);
     if (current && current.socket === socket) {
       sessions.delete(sessionId);
-      current.pending.forEach(({ reject, timeout }) => {
+      current.pendingCmds.forEach(({ reject, timeout }) => {
         clearTimeout(timeout);
         reject(new Error("Extension disconnected"));
+      });
+
+      // Clean up tab ownership
+      current.tabIds.forEach(tabId => {
+        const owner = tabOwner.get(tabId);
+        if (owner === sessionId) {
+          tabOwner.delete(tabId);
+        }
       });
     }
   });
@@ -328,7 +442,7 @@ function shutdown() {
   log("Shutting down daemon...");
 
   sessions.forEach((session) => {
-    session.pending.forEach(({ reject, timeout }) => {
+    session.pendingCmds.forEach(({ reject, timeout }) => {
       clearTimeout(timeout);
       reject(new Error("Daemon shutting down"));
     });
@@ -339,6 +453,7 @@ function shutdown() {
     }
   });
   sessions.clear();
+  tabOwner.clear();
 
   httpServer.close(() => {
     log("Daemon stopped");
