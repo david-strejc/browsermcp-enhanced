@@ -98,14 +98,17 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
 
   // Handle response to command
   if (type === "response" && wireId) {
-    const pending = session.pendingCmds.get(wireId);
+    // CRITICAL: Look up pending in the CORRECT session (use sessionId from envelope, not extension's session)
+    const targetSession = sessionId ? sessions.get(sessionId) : session;
+    const pending = targetSession?.pendingCmds.get(wireId);
+
     if (pending) {
       clearTimeout(pending.timeout);
-      session.pendingCmds.delete(wireId);
+      targetSession.pendingCmds.delete(wireId);
       pending.resolve(data ?? payload ?? envelope);
       return;
     } else {
-      warn(`Received response for unknown wireId: ${wireId}`);
+      warn(`Received response for unknown wireId: ${wireId} in session ${sessionId || session.sessionId}`);
     }
   }
 
@@ -213,14 +216,41 @@ async function executeCommand(session: SessionRecord, command: Command): Promise
 }
 
 async function handleCommandRequest(req: any, res: any, sessionId: string, tabId: string | undefined) {
-  const session = sessions.get(sessionId);
+  let session = sessions.get(sessionId);
 
-  // Protocol v2: NO FALLBACK - exact session match only
+  // Protocol v2: Session aliasing - if session doesn't exist, create it from existing connection
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
-    warn(`Command received for unknown/disconnected session ${sessionId}`);
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Session not connected" }));
-    return;
+    // Find ANY connected extension
+    const connectedSessions = Array.from(sessions.values()).filter(
+      s => s.socket.readyState === WebSocket.OPEN
+    );
+
+    if (connectedSessions.length > 0) {
+      // Reuse the WebSocket connection, create new session record
+      const existingSession = connectedSessions[0];
+      log(`Creating new session ${sessionId} from existing connection ${existingSession.sessionId}`);
+
+      session = {
+        sessionId,
+        socket: existingSession.socket, // REUSE same WebSocket!
+        pendingCmds: new Map(),
+        tabIds: [],
+        currentTabId: undefined,
+        busy: false,
+        commandQueue: [],
+        lastSeen: Date.now(),
+      };
+
+      sessions.set(sessionId, session);
+
+      // TODO: Send message to extension to open new tab for this session
+      log(`Session ${sessionId} registered, will use shared WebSocket`);
+    } else {
+      warn(`Command received for unknown session ${sessionId} and no extension connected`);
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "No extension connected" }));
+      return;
+    }
   }
 
   // Tab ownership validation

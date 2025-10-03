@@ -16,7 +16,7 @@
  * - Automatic lifecycle detection
  */
 
-import { program } from 'commander';
+// Removed commander - not needed for stdio mode
 import { UnifiedWSServer, createUnifiedWebSocketServer } from './ws-unified';
 import { Context } from './context';
 import { createServerWithTools } from './server';
@@ -153,65 +153,59 @@ async function createMCPServer() {
   return { server, context, instanceId };
 }
 
-program
-  .version('Version ' + pkg.version)
-  .name(pkg.name + '-unified')
-  .option('-p, --port <number>', 'WebSocket port to listen on', '8765')
-  .option('--hot-reload', 'Enable hot reload for development', false)
-  .action(async (options) => {
-    const port = parseInt(options.port, 10);
+// Main entry point - run directly (no CLI parsing needed for stdio)
+(async () => {
+  const port = parseInt(process.env.BROWSER_MCP_WS_PORT || '8765', 10);
 
-    // Enable hot reload if requested
-    if (options.hotReload || process.env.HOT_RELOAD === 'true') {
-      console.error('[UnifiedMCP] Hot reload enabled');
-      const watchPath = process.env.HOT_RELOAD_WATCH_PATH || '/home/david/Work/Programming/browsermcp-enhanced/src';
-      console.error(`[UnifiedMCP] Watching: ${watchPath}`);
-      enableHotReload({
-        verbose: true,
-        debounceMs: 500,
-        watchPath: watchPath
-      });
+  // Enable hot reload if requested
+  if (process.env.HOT_RELOAD === 'true') {
+    console.error('[UnifiedMCP] Hot reload enabled');
+    const watchPath = process.env.HOT_RELOAD_WATCH_PATH || '/home/david/Work/Programming/browsermcp-enhanced/src';
+    console.error(`[UnifiedMCP] Watching: ${watchPath}`);
+    enableHotReload({
+      verbose: true,
+      debounceMs: 500,
+      watchPath: watchPath
+    });
+  }
+
+  // Setup WebSocket server (single listener for all instances)
+  await setupWebSocketServer(port);
+
+  // Create MCP server (this instance's stdio transport)
+  const { server, context, instanceId } = await createMCPServer();
+
+  // Connect via stdio
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+
+  console.error(`[UnifiedMCP] MCP server connected via stdio`);
+  console.error(`[UnifiedMCP] Instance ID: ${instanceId}`);
+  console.error(`[UnifiedMCP] Browser extension should connect to: ws://localhost:${port}/session/${instanceId}`);
+  console.error(`[UnifiedMCP] Version: ${pkg.version}`);
+  console.error(`[UnifiedMCP] Ready!`);
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.error('[UnifiedMCP] Shutting down...');
+
+    if (wsServer) {
+      await wsServer.close();
     }
 
-    // Setup WebSocket server (single listener for all instances)
-    await setupWebSocketServer(port);
+    await server.close();
+    process.exit(0);
+  };
 
-    // Create MCP server (this instance's stdio transport)
-    const { server, context, instanceId } = await createMCPServer();
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
-    // Connect via stdio
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-
-    console.error(`[UnifiedMCP] MCP server connected via stdio`);
-    console.error(`[UnifiedMCP] Instance ID: ${instanceId}`);
-    console.error(`[UnifiedMCP] Browser extension should connect to: ws://localhost:${port}/session/${instanceId}`);
-    console.error(`[UnifiedMCP] Version: ${pkg.version}`);
-    console.error(`[UnifiedMCP] Ready!`);
-
-    // Graceful shutdown
-    const shutdown = async () => {
-      console.error('[UnifiedMCP] Shutting down...');
-
-      if (wsServer) {
-        await wsServer.close();
-      }
-
-      await server.close();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
-
-    // Periodic stats (debug)
-    setInterval(() => {
-      if (wsServer) {
-        const count = wsServer.getInstanceCount();
-        const instances = wsServer.getActiveInstances();
-        console.error(`[UnifiedMCP] Active instances: ${count} - ${instances.join(', ')}`);
-      }
-    }, 60000); // Every minute
-  });
-
-program.parse();
+  // Periodic stats (debug)
+  setInterval(() => {
+    if (wsServer) {
+      const count = wsServer.getInstanceCount();
+      const instances = wsServer.getActiveInstances();
+      console.error(`[UnifiedMCP] Active instances: ${count} - ${instances.join(', ')}`);
+    }
+  }, 60000); // Every minute
+})();
