@@ -25,10 +25,10 @@ export async function captureAriaSnapshot(
   
   if (useScaffold) {
     console.log('[captureAriaSnapshot] Sending scaffold mode request');
-    const response = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
+    const response: any = await context.sendSocketMessage("snapshot.accessibility", { mode: 'scaffold' });
 
     // Update current tab ID if provided
-    if (response.tabId) {
+    if (response && typeof response.tabId !== 'undefined') {
       context.currentTabId = String(response.tabId);
     }
 
@@ -51,11 +51,11 @@ export async function captureAriaSnapshot(
   };
   
   console.log('[aria-snapshot.ts] Sending snapshot request with options:', snapshotOptions);
-  const response = await context.sendSocketMessage("snapshot.accessibility", snapshotOptions);
+  const response: any = await context.sendSocketMessage("snapshot.accessibility", snapshotOptions);
   console.log('[aria-snapshot.ts] Received response, snapshot length:', response.snapshot?.length);
 
   // Update current tab ID if provided
-  if (response.tabId) {
+  if (response && typeof response.tabId !== 'undefined') {
     context.currentTabId = String(response.tabId);
   }
 
