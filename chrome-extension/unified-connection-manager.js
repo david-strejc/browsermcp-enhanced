@@ -280,19 +280,39 @@
   };
 
   /**
-   * Update badge to show connection status
+   * Update badge and icon to show connection status
    */
   UnifiedConnectionManager.prototype.updateBadge = function() {
     if (!chrome.action) return;
 
     if (this.isConnected()) {
+      // Update badge
       chrome.action.setBadgeText({ text: '✓' });
       chrome.action.setBadgeBackgroundColor({ color: '#00aa00' });
       chrome.action.setTitle({ title: `Browser MCP Connected\nInstance: ${this.instanceId}` });
+
+      // Update icon to green
+      chrome.action.setIcon({
+        path: {
+          "16": "icon-16-connected.png",
+          "48": "icon-48-connected.png",
+          "128": "icon-128-connected.png"
+        }
+      }).catch(err => console.warn('Failed to update icon:', err));
     } else {
+      // Update badge
       chrome.action.setBadgeText({ text: '✗' });
       chrome.action.setBadgeBackgroundColor({ color: '#aa0000' });
       chrome.action.setTitle({ title: 'Browser MCP Disconnected' });
+
+      // Update icon to red
+      chrome.action.setIcon({
+        path: {
+          "16": "icon-16-disconnected.png",
+          "48": "icon-48-disconnected.png",
+          "128": "icon-128-disconnected.png"
+        }
+      }).catch(err => console.warn('Failed to update icon:', err));
     }
   };
 

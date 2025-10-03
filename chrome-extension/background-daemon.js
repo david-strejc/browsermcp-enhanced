@@ -140,6 +140,10 @@
 
   const Controller = {
     async init() {
+      if (connectionManager) {
+        log('Already initialized, skipping...');
+        return;
+      }
       log('Initializing daemon mode...');
       registerHandlers();
       connectionManager = new self.UnifiedConnectionManager();

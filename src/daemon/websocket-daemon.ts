@@ -118,12 +118,25 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
 }
 
 async function handleCommandRequest(req: any, res: any, sessionId: string, tabId: string | undefined) {
-  const session = sessions.get(sessionId);
+  let session = sessions.get(sessionId);
+
+  // If the exact session doesn't exist, try to use ANY connected session
+  // This handles the case where MCP creates a new session ID but the extension
+  // is already connected with a different (older) ID
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
-    warn(`Command received for missing session ${sessionId}`);
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Instance not connected" }));
-    return;
+    const connectedSessions = Array.from(sessions.values()).filter(
+      s => s.socket.readyState === WebSocket.OPEN
+    );
+
+    if (connectedSessions.length > 0) {
+      session = connectedSessions[0];
+      log(`Routing command for session ${sessionId} to connected extension ${session.sessionId}`);
+    } else {
+      warn(`Command received for missing session ${sessionId} and no fallback available`);
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Instance not connected" }));
+      return;
+    }
   }
 
   log(`Command ${sessionId} received at daemon (${tabId ?? 'no-tab'})`);

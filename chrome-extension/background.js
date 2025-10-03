@@ -37,7 +37,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     await chrome.storage.local.set({ unsafeMode: false });
   }
-  bootstrap();
+  // Bootstrap handled by activate event
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -49,12 +49,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 self.addEventListener('activate', (event) => {
   log('Service worker activated');
-  event.waitUntil(clients.claim());
+  event.waitUntil(
+    clients.claim().then(() => bootstrap())
+  );
 });
 
 self.addEventListener('install', (event) => {
   log('Service worker installed');
   event.waitUntil(self.skipWaiting());
 });
-
-bootstrap();
