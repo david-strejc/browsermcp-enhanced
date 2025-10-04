@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http";
+import { appendFile } from "node:fs";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "node:crypto";
 
@@ -39,6 +40,14 @@ const MCP_HTTP_URL = process.env.BROWSER_MCP_HTTP_URL || "http://127.0.0.1:3000"
 const COMMAND_TIMEOUT_MS = parseInt(process.env.BROWSER_MCP_COMMAND_TIMEOUT || "45000", 10);
 
 const sessions = new Map<string, SessionRecord>();
+
+const EVENT_LOG_PATH = process.env.BROWSER_MCP_EVENT_LOG || "/tmp/browsermcp-events.log";
+function logToFile(entry: any) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), ...entry }) + "\n";
+    appendFile(EVENT_LOG_PATH, line, () => {});
+  } catch {/* ignore */}
+}
 
 function log(...args: any[]) {
   console.log("[BrowserMCP Daemon]", new Date().toISOString(), ...args);
@@ -123,6 +132,8 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
         }
       } catch {}
 
+      // File log for response
+      logToFile({ src: 'response', wireId, sessionId: targetSession?.sessionId, name: name ?? envelope.name, dataTabId: data?.tabId, envTabId: envelope.tabId });
       pending.resolve(data ?? payload ?? envelope);
       return;
     } else {
@@ -156,7 +167,10 @@ function handleExtensionMessage(session: SessionRecord, rawData: WebSocket.RawDa
   // Handle unsolicited events (console, errors, etc.)
   if (type === "event") {
     const tabId = envelope.tabId ?? payload?.tabId;
-    forwardToMcp(session.sessionId, tabId, {
+    const targetHeaderSessionId = envelope.sessionId || session.sessionId;
+    // File log for event
+    logToFile({ src: 'event', sessionId: targetHeaderSessionId, name: name ?? 'unknown', tabId, payload });
+    forwardToMcp(targetHeaderSessionId, tabId, {
       messageId: wireId ?? `daemon-${Date.now()}`,
       type: "event",
       name: name ?? "unknown",
@@ -221,6 +235,8 @@ async function executeCommand(session: SessionRecord, command: Command): Promise
     };
 
     try {
+      // File log for command
+      logToFile({ src: 'command', sessionId: command.sessionId, wireId, name, tabId });
       session.socket.send(JSON.stringify(envelope));
     } catch (err) {
       const pending = session.pendingCmds.get(wireId);
@@ -445,11 +461,13 @@ wss.on("connection", (socket, request) => {
   };
 
   sessions.set(sessionId, record);
+  logToFile({ src: 'extension-connect', sessionId });
 
   socket.on("message", (data) => handleExtensionMessage(record, data));
 
   socket.on("close", () => {
     log(`Extension disconnected for session ${sessionId}`);
+    logToFile({ src: 'extension-close', sessionId });
 
     // CRITICAL: Remove ALL sessions using this WebSocket (session aliasing!)
     const sessionsToDelete: string[] = [];
@@ -463,6 +481,7 @@ wss.on("connection", (socket, request) => {
       const session = sessions.get(sid);
       if (session) {
         log(`Cleaning up session ${sid} due to WebSocket close`);
+        logToFile({ src: 'session-cleanup', sessionId: sid });
         sessions.delete(sid);
 
         // Reject pending commands
