@@ -6,15 +6,15 @@ export async function captureAriaSnapshot(
   status: string = "",
   options: { level?: 'minimal' | 'full' | 'scaffold'; viewportOnly?: boolean; mode?: string; includeInstanceContext?: boolean } = {},
 ): Promise<ToolResult> {
-  // Build instance context header (default: true) - will be built after response
-  const includeContext = options.includeInstanceContext !== false;
+  // Include instance context only for scaffold mode by default (unless explicitly requested)
+  const includeContext = options.includeInstanceContext ?? (options.mode === 'scaffold');
 
   function buildInstanceContext(): string {
     if (!includeContext) return '';
     const instanceId = context.instanceId ? context.instanceId.substring(0, 8) : 'unknown';
     const tabId = context.currentTabId || 'none';
-    const port = context.port || 'unknown';
-    return `[Instance: ${instanceId}... | Tab: ${tabId} | Port: ${port}]\n\n`;
+    // Port is no longer displayed
+    return `[Instance: ${instanceId}... | Tab: ${tabId}]\n\n`;
   }
   // For navigation tools, default to scaffold mode for compact output
   const useScaffold = options.level === 'scaffold' || 

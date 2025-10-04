@@ -375,8 +375,12 @@ echo "----------------------------------------"
 mkdir -p "$CHROME_EXT_DIR"
 cp -r "$CURRENT_DIR/chrome-extension/"* "$CHROME_EXT_DIR/"
 if [ -f "$CHROME_EXT_DIR/manifest.json" ]; then
-    CHROME_VERSION="${NEW_VERSION%.0}"
-    sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$CHROME_VERSION\"/" "$CHROME_EXT_DIR/manifest.json"
+    sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$NEW_VERSION\"/" "$CHROME_EXT_DIR/manifest.json"
+fi
+
+# Also bump repository manifest to keep repo and deployed in sync
+if [ -f "$CURRENT_DIR/chrome-extension/manifest.json" ]; then
+    sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$NEW_VERSION\"/" "$CURRENT_DIR/chrome-extension/manifest.json"
 fi
 check_status "Chrome extension deployed"
 
