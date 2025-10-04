@@ -67,6 +67,7 @@ export interface RawFeedbackBundle {
   duration: number;               // Action duration
   timestamp: number;              // When action started
   viewport?: { width: number; height: number }; // Viewport size
+  ref?: string;                   // element reference (optional)
   
   // Element state (extended)
   elementState?: {
