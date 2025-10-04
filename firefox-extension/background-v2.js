@@ -114,7 +114,20 @@ async function handleScreenshot(tabId) { try { if (typeof tabId!=='number') retu
 async function handleGetConsoleLogs(tabId) { try { if (typeof tabId!=='number') return { success:false, error:'No active tab' }; return await browserAPI.tabs.sendMessage(tabId, { action:'getConsoleLogs' }); } catch(e){ return { success:false, error:String(e) }; } }
 async function handleSnapshot(tabId, { viewportOnly=true, fullPage=false, mode='normal' }) { try { if (typeof tabId!=='number') return { success:false, error:'No active tab' }; await injectSnapshotScripts(tabId); const res = await browserAPI.tabs.sendMessage(tabId, { action:'snapshot', viewportOnly, fullPage, mode }); return { ...res, tabId }; } catch(e){ return { success:false, error:String(e) }; } }
 async function injectSnapshotScripts(tabId) { try { for (const f of ['accessibility-utils.js','minimal-enhanced.js','scaffold-enhanced.js']) { await browserAPI.tabs.executeScript(tabId, { file:f, allFrames:false }); } } catch(e){ /* ignore */ } }
-async function handleExecuteJS(tabId, { code, timeout, unsafe=false }) { try { if (typeof tabId!=='number') return { success:false, error:'No active tab' }; if (unsafe && !extensionConfig.unsafeMode) return { success:false, error:'Unsafe mode not enabled' }; return await browserAPI.tabs.sendMessage(tabId, { action:'executeCode', code, timeout }); } catch(e){ return { success:false, error:String(e) }; } }
+async function handleExecuteJS(tabId, payload) {
+  try {
+    if (typeof tabId !== 'number') return { success: false, error: 'No active tab' };
+    const { code, timeout, unsafe = false, method, args = [] } = payload || {};
+    if (typeof method === 'string') {
+      // Safe-mode operation routed to content script
+      return await browserAPI.tabs.sendMessage(tabId, { action: 'executeSafeOperation', method, args, timeout });
+    }
+    if (unsafe && !extensionConfig.unsafeMode) return { success: false, error: 'Unsafe mode not enabled' };
+    return await browserAPI.tabs.sendMessage(tabId, { action: 'executeCode', code, timeout });
+  } catch (e) {
+    return { success: false, error: String(e) };
+  }
+}
 async function handleCommonOperation(tabId, { operation, options={} }) { try { if (typeof tabId!=='number') return { success:false, error:'No active tab' }; return await browserAPI.tabs.sendMessage(tabId, { action:'commonOperation', operation, options }); } catch(e){ return { success:false, error:String(e) }; } }
 async function handleTabList() { try { const tabs=await browserAPI.tabs.query({}); return { success:true, tabs:tabs.map(t=>({ id:t.id,title:t.title,url:t.url,active:t.active,index:t.index })) }; } catch(e){ return { success:false, error:String(e) }; } }
 async function handleTabSelect({ index }) { try { const tabs=await browserAPI.tabs.query({ index }); if (tabs.length>0) { await browserAPI.tabs.update(tabs[0].id,{ active:true }); return { success:true, tabId:tabs[0].id }; } return { success:false, error:'Tab not found at index' }; } catch(e){ return { success:false, error:String(e) }; } }

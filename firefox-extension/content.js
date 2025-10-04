@@ -48,6 +48,52 @@ browserAPI.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
     try {
       switch (request.action) {
+        case 'executeSafeOperation': {
+          const method = request.method;
+          const args = Array.isArray(request.args) ? request.args : [];
+          try {
+            switch (method) {
+              case 'query': {
+                const [selector, opts] = args;
+                const limit = opts?.limit ?? 100;
+                const includeHidden = !!opts?.includeHidden;
+                const attrs = Array.isArray(opts?.attrs) ? opts.attrs : ['textContent'];
+                const elements = Array.from(document.querySelectorAll(selector || '*'))
+                  .filter(el => includeHidden || isVisible(el))
+                  .slice(0, limit)
+                  .map(el => {
+                    const out = {};
+                    for (const a of attrs) {
+                      if (a === 'textContent') out[a] = el.textContent?.trim() || '';
+                      else if (a === 'html' || a === 'innerHTML') out[a] = el.innerHTML;
+                      else if (a === 'outerHTML') out[a] = el.outerHTML;
+                      else out[a] = el.getAttribute(a);
+                    }
+                    return out;
+                  });
+                sendResponse({ success: true, result: elements });
+                break;
+              }
+              case 'getHTML': {
+                const [selector] = args;
+                const el = document.querySelector(selector);
+                sendResponse({ success: true, result: el ? el.innerHTML : null });
+                break;
+              }
+              case 'getOuterHTML': {
+                const [selector] = args;
+                const el = document.querySelector(selector);
+                sendResponse({ success: true, result: el ? el.outerHTML : null });
+                break;
+              }
+              default:
+                sendResponse({ success: false, error: `Unsupported safe op: ${method}` });
+            }
+          } catch (opErr) {
+            sendResponse({ success: false, error: String(opErr) });
+          }
+          break;
+        }
         case 'detectPopups':
           // Use popup detector if available
           if (window.__popupDetector) {
@@ -478,6 +524,14 @@ function extractAllLinks() {
   }));
 
   return { links };
+}
+
+function isVisible(el) {
+  const cs = window.getComputedStyle(el);
+  const rect = el.getBoundingClientRect();
+  if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+  if (rect.width === 0 && rect.height === 0) return false;
+  return true;
 }
 
 function extractAllImages() {
