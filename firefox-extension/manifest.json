@@ -9,6 +9,7 @@
     "activeTab",
     "webNavigation",
     "storage",
+    "alarms",
     "<all_urls>"
   ],
 

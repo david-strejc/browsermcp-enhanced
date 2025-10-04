@@ -135,5 +135,36 @@ async function handleTabNew({ url }) { try { const tab=await browserAPI.tabs.cre
 async function handleTabClose({ index }) { try { if (typeof index==='number') { const tabs=await browserAPI.tabs.query({ index }); if (tabs.length>0) await browserAPI.tabs.remove(tabs[0].id); } else { const tabs=await browserAPI.tabs.query({ active:true, currentWindow:true }); if (tabs[0]) await browserAPI.tabs.remove(tabs[0].id); } return { success:true }; } catch(e){ return { success:false, error:String(e) }; } }
 
 browserAPI.runtime.onStartup.addListener(()=>{ connectToMCP(); });
+// Initialize periodic reconnect alarm (once installed/updated)
+browserAPI.runtime.onInstalled.addListener(() => {
+  try {
+    if (browserAPI.alarms) {
+      // Create or reset a 1-minute periodic alarm to ensure background wakes and reconnects
+      browserAPI.alarms.clear('browsermcp-reconnect');
+      browserAPI.alarms.create('browsermcp-reconnect', { periodInMinutes: 1 });
+    }
+  } catch (e) {
+    // ignore
+  }
+  connectToMCP();
+});
+
+// Reconnect on alarm if socket is not open
+if (browserAPI.alarms && browserAPI.alarms.onAlarm) {
+  browserAPI.alarms.onAlarm.addListener((alarm) => {
+    if (alarm && alarm.name === 'browsermcp-reconnect') {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) {
+        connectToMCP();
+      }
+    }
+  });
+}
+
+// Reconnect when network comes back online
+try {
+  addEventListener('online', () => { if (!(ws && ws.readyState === WebSocket.OPEN)) connectToMCP(); });
+} catch (e) {
+  // ignore if not supported
+}
 connectToMCP();
 console.log('BrowserMCP Enhanced Firefox background (v2) loaded');
