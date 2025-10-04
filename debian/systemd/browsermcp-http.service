@@ -1,0 +1,20 @@
+[Unit]
+Description=BrowserMCP Enhanced - HTTP MCP Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=david
+Group=david
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/default/browsermcp
+WorkingDirectory=/home/david/.local/lib/browsermcp-enhanced
+ExecStart=/usr/bin/node /home/david/.local/lib/browsermcp-enhanced/dist/index-http.js --port ${BROWSER_MCP_HTTP_PORT}
+Restart=always
+RestartSec=3
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
+
