@@ -6,7 +6,7 @@
 import { HintCode, RecoveryMacros } from './hint-engine';
 
 // Compact hint expansions - surgically precise instructions
-export const HintExpansions: Record<HintCode, string> = {
+export const HintExpansions: Partial<Record<HintCode, string>> = {
   // Basic strategies
   [HintCode.RETRY_SIMPLE]: 'Retry the same action immediately',
   [HintCode.RETRY_WITH_WAIT]: 'Wait 2 seconds with browser_wait(2) then retry the action',
@@ -35,7 +35,7 @@ export const HintExpansions: Record<HintCode, string> = {
 };
 
 // Micro-expansions for extreme token efficiency
-export const MicroHints: Record<HintCode, string> = {
+export const MicroHints: Partial<Record<HintCode, string>> = {
   [HintCode.RETRY_SIMPLE]: 'retry',
   [HintCode.RETRY_WITH_WAIT]: 'wait→retry',
   [HintCode.REFRESH_SNAPSHOT]: 'snapshot→retry',
