@@ -37,7 +37,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === 'install') {
     await chrome.storage.local.set({ unsafeMode: false });
   }
-  // Bootstrap handled by activate event
+  // Ensure bootstrap on install/update as well
+  try { await bootstrap(); } catch (e) { error('Bootstrap onInstalled failed:', e); }
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -57,4 +58,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('install', (event) => {
   log('Service worker installed');
   event.waitUntil(self.skipWaiting());
+});
+
+// Ensure initialization on browser startup (Chrome runtime event)
+chrome.runtime.onStartup.addListener(() => {
+  log('Runtime startup detected – initializing');
+  bootstrap().catch((e) => error('Bootstrap onStartup failed:', e));
 });
