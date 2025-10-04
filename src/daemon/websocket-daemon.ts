@@ -300,7 +300,7 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
     }
   }
 
-  log(`Command for session ${sessionId} received at daemon (tab: ${tabId ?? 'auto'})`);
+  log(`Command for session ${sessionId} received at daemon (incoming tab: ${tabId ?? 'auto'})`);
 
   let body = "";
   for await (const chunk of req) {
@@ -344,6 +344,7 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
     payload: command.payload ?? {},
     tabId: useExplicitTab ? (tabId ?? session.currentTabId) : tabId,
   };
+  log(`Routing command`, { sessionId, name: messageType, wireId, selectedTab: cmd.tabId ?? 'auto', currentTab: session.currentTabId });
 
   // FIFO queue: if busy, enqueue; otherwise execute immediately
   if (session.busy) {
@@ -357,6 +358,7 @@ async function handleCommandRequest(req: any, res: any, sessionId: string, tabId
 
   try {
     const result = await executeCommand(session, cmd);
+    log(`Command resolved`, { sessionId, wireId, tabLearned: (result && (result as any).tabId) || session.currentTabId });
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ success: true, payload: result }));
   } catch (err) {

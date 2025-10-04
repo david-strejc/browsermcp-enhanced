@@ -26,9 +26,11 @@
       list.push(tabId);
     }
     lastFocusedTabForSession.set(sessionId, tabId);
+    log('recordSessionTab', { sessionId, tabId, list: [...list] });
   }
 
   async function ensureSessionTab(sessionId, preferredTabId) {
+    log('ensureSessionTab: start', { sessionId, preferredTabId, last: lastFocusedTabForSession.get(sessionId) });
     // If an explicit tab is provided and exists, use it
     if (typeof preferredTabId === 'number') {
       try {
@@ -55,6 +57,7 @@
     // Create first tab for this session
     const created = await chrome.tabs.create({ url: 'about:blank', active: true });
     recordSessionTab(sessionId, created.id);
+    log('ensureSessionTab: created new tab', { sessionId, tabId: created.id, index: created.index });
     return created.id;
   }
 
@@ -395,6 +398,25 @@
           type: 'response',
           data: result && typeof result === 'object' ? { ...result, tabId: (result.tabId ?? resolvedTabId) } : { tabId: resolvedTabId }
         });
+        // Emit a debug event with current session→tab mapping
+        try {
+          const tabs = tabForSession.get(sessionId) || [];
+          connectionManager.send({
+            type: 'event',
+            sessionId,
+            name: 'debug',
+            payload: {
+              where: 'background-daemon',
+              action: commandType,
+              resolvedTabId,
+              sessionId,
+              tabs: [...tabs],
+              lastFocused: lastFocusedTabForSession.get(sessionId)
+            }
+          });
+        } catch (e) {
+          warn('Failed to send debug event:', e);
+        }
       }
     } catch (err) {
       error('Handler failed:', err);
