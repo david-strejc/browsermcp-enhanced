@@ -1,57 +1,33 @@
 <div align="center">
-  <img src="https://wpdistro.cz/laskobot-mascot.jpg" alt="Láskobot Mascot" width="800"/>
+  <img src="https://wpdistro.cz/laskobot-mascot.jpg" alt="LaskoBOT Mascot" width="800"/>
 </div>
 
-# BrowserMCP Enhanced 🚀
+# LaskoBOT — Protocol v2, Multi‑Instance, Cross‑Browser
 
 <div align="center">
 
-  **v1.5.0 - Codename: Láskobot**
+  **LaskoBOT v1.30.7**
 
-  [![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/david-strejc/browsermcp-enhanced/releases)
+  [![Version](https://img.shields.io/badge/version-1.30.7-blue.svg)](https://github.com/david-strejc/browsermcp-enhanced/releases)
   [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
   [![MCP](https://img.shields.io/badge/MCP-Compatible-purple.svg)](https://modelcontextprotocol.io)
 </div>
 
-Enhanced MCP server for browser automation with simplified tools, advanced JavaScript execution, and comprehensive debugging capabilities.
+Modern MCP server + browser extensions for reliable, multi‑instance automation over a single WebSocket daemon.
 
 ## ✨ Features
 
-### 🔒 Dual-Mode JavaScript Execution
-- **Safe Mode (Default)**: Secure, sandboxed execution with RPC architecture
-- **Unsafe Mode**: Direct DOM access for advanced automation scenarios
-- Clear API separation with async/await patterns
-
-### 🎯 Smart Element Detection
-- Component-based capture for accurate selection
-- Accessibility-aware element identification
-- Automatic trusted click handling for OAuth/popups
-- Advanced validation and tracking
-
-### 🛠️ Developer-Friendly APIs
-```javascript
-// Safe Mode - Controlled DOM access
-await api.getText('h1')
-await api.click('#submit')
-await api.setValue('input', 'text')
-await api.exists('.element')
-await api.getPageInfo()
-
-// Unsafe Mode - Full browser access
-(function(){ return document.title })()
-```
-
-### 📊 Advanced Debugging
-- Console log capture
-- Network request monitoring
-- Performance metrics
-- Error tracking with stack traces
+### ✨ Highlights
+- Single WS daemon (8765), many sessions (Claude instances)
+- Per‑session tab routing and ownership (no cross‑talk)
+- Unified tools across Chrome and Firefox
+- Auto‑reconnect (Firefox adds alarms + online hooks)
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - Node.js 20+
-- Chrome/Chrome Canary
+- Chrome or Firefox
 - Claude Desktop with MCP support
 
 ### Installation
@@ -73,28 +49,18 @@ npm install
 npm run build
 ```
 
-2. **Install Chrome Extension:**
-   - Open `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select the `chrome-extension` folder
-
-3. **Configure Claude Desktop:**
-
-Add to `~/.claude/mcp_servers.json`:
-```json
-{
-  "mcp-server-browsermcp-enhanced": {
-    "command": "node",
-    "args": ["/path/to/browsermcp-enhanced/dist/index.js"],
-    "env": {
-      "BROWSER_MCP_ALLOWED_ORIGINS": "*"
-    }
-  }
-}
+2. **Install systemd services (HTTP + WS daemon):**
+```bash
+sudo ./scripts/systemd-install.sh --user "$USER" \
+  --install-dir "/home/$USER/.local/lib/browsermcp-enhanced" \
+  --http-port 3000 --ws-port 8765
 ```
 
-4. **Restart Claude Desktop**
+3. **Load extension (one browser at a time):**
+- Chrome: `chrome://extensions` → Developer mode → Load unpacked → `chrome-extension/`
+- Firefox: `about:debugging#/runtime/this-firefox` → Load Temporary Add‑on → `firefox-extension/manifest.json`
+
+4. **Configure Claude Desktop:** Point to `http://127.0.0.1:3000/mcp`
 
 ## 📖 Usage
 
@@ -103,50 +69,23 @@ Add to `~/.claude/mcp_servers.json`:
 // Navigate to a URL
 await browser_navigate({ url: "https://example.com" })
 
-// Take a snapshot
-await browser_snapshot()
+// Snapshot
+await snapshot.accessibility({ mode: 'scaffold' })
 
 // Click an element
 await browser_click({ ref: "button-1", element: "Submit button" })
 ```
 
 ### JavaScript Execution
-
-#### Safe Mode (Default)
 ```javascript
-// Get text content
-const result = await browser_execute_js({
-  code: "return await api.getText('h1')"
-})
+// Plain DOM
+await js.execute({ code: "return document.title" })
 
-// Check element existence
-const exists = await browser_execute_js({
-  code: "return await api.exists('#login-form')"
-})
+// Safe operation (no code)
+await js.execute({ method: 'query', args: ['h3', { attrs: ['textContent'], limit: 10 }] })
 
-// Complex operations
-const data = await browser_execute_js({
-  code: `
-    const title = await api.getText('h1');
-    const hasForm = await api.exists('form');
-    return { title, hasForm };
-  `
-})
-```
-
-#### Unsafe Mode (Advanced)
-```javascript
-// Direct DOM access (requires IIFE wrapper)
-const result = await browser_execute_js({
-  code: "(function(){ return document.title })()",
-  unsafe: true
-})
-
-// Access framework internals
-const vueData = await browser_execute_js({
-  code: "(function(){ return document.querySelector('#app').__vue__.$data })()",
-  unsafe: true
-})
+// Unsafe (enable in extension options first)
+await js.execute({ code: "(function(){ return location.href })()", unsafe: true })
 ```
 
 ### Form Automation
@@ -163,17 +102,10 @@ await browser_multitool({
 })
 ```
 
-### Debugging
-```javascript
-// Attach debugger
-await browser_debugger_attach({ domains: ["console", "network"] })
-
-// Get console logs
-const logs = await browser_debugger_get_data({ type: "console" })
-
-// Monitor network
-const requests = await browser_debugger_get_data({ type: "network" })
-```
+### Debugging & Logs
+Daemon: `/tmp/browsermcp-daemon.log`, `/tmp/browsermcp-events.log`
+Chrome: `chrome://extensions` → Inspect (background)
+Firefox: `about:debugging` → Inspect (background)
 
 ## 🔧 Advanced Configuration
 
@@ -189,26 +121,17 @@ BROWSER_MCP_ALLOWED_ORIGINS="https://example.com,https://app.example.com"
 BROWSER_MCP_PORT=8765
 ```
 
-### Chrome Extension Options
-1. Open extension popup
-2. Configure:
-   - Auto-reconnect intervals
-   - Debug logging
-   - Performance monitoring
+### Extension Options (Firefox)
+- Unsafe mode toggle (required for `unsafe: true`)
 
 ## 📚 API Reference
 
 ### Core Tools
-- `browser_navigate` - Navigate to URL
-- `browser_snapshot` - Capture page state
-- `browser_click` - Click elements
-- `browser_type` - Type text
-- `browser_execute_js` - Execute JavaScript
-
-### Advanced Tools
-- `browser_multitool` - Pattern-based automation
-- `browser_debugger_*` - Debugging utilities
-- `browser_tab_*` - Tab management
+- `browser_navigate`, `browser_go_back`, `browser_go_forward`
+- `dom.click`, `dom.type`, `dom.hover`, `dom.select`
+- `snapshot.accessibility`
+- `tabs.list`, `tabs.select`, `tabs.new`, `tabs.close`
+- `console.get`, `screenshot.capture`, `js.execute`
 
 ## 🧪 Testing
 
@@ -282,4 +205,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Made with ❤️ by the BrowserMCP Enhanced Contributors**
+**Made with ❤️ by the LaskoBOT Contributors**

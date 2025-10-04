@@ -355,7 +355,7 @@ Located: `~/.claude/mcp_servers.json`
 - **Test Coverage:** 2 test scripts, automated + manual procedures
 
 **Developed by:** Claude Code (Sonnet 4.5)
-**Project:** BrowserMCP Enhanced
+**Project:** LaskoBOT
 **Owner:** David Strejc (@david.strejc@apertia.cz)
 
 ---
