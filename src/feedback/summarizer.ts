@@ -57,8 +57,8 @@ export class FeedbackSummarizer {
 
     // Add network activity if significant
     const netActivity = this.summarizeNetwork(rawBundle.network);
-    if (netActivity?.length > 0) {
-      feedback.net = netActivity;
+    if (netActivity && netActivity.length > 0) {
+      feedback.net = netActivity as NetworkActivity[];
     }
 
     // Add timing if notably slow
@@ -217,9 +217,9 @@ export class FeedbackSummarizer {
     error?: string
   ): string {
     // Build context for hint engine
-    const context: FeedbackContext = {
+      const context: FeedbackContext = {
       hostname: bundle.pageState?.after?.url ? new URL(bundle.pageState.after.url).hostname : undefined,
-      elementRef: bundle.ref,
+      elementRef: (bundle as any).ref,
       elementMeta: bundle.elementState ? {
         tag: bundle.elementState.tag,
         type: bundle.elementState.type,
@@ -235,7 +235,7 @@ export class FeedbackSummarizer {
         hasInfiniteScroll: this.detectInfiniteScroll(bundle),
         hasVideo: this.detectVideo(bundle)
       },
-      viewport: bundle.viewport,
+      viewport: (bundle as any).viewport,
       networkHistory: bundle.network,
       mutations: bundle.mutations as any,
       actionStart: bundle.timestamp,
@@ -300,9 +300,11 @@ export class FeedbackSummarizer {
   private detectInfiniteScroll(bundle: RawFeedbackBundle): boolean {
     const pageState = bundle.pageState;
     if (!pageState?.before || !pageState?.after) return false;
-    
+    const beforeBH = pageState.before.bodyHeight ?? 0;
+    const afterBH = pageState.after.bodyHeight ?? 0;
+    if (beforeBH <= 0) return false;
     // Check if body height increased significantly
-    return pageState.after.bodyHeight > pageState.before.bodyHeight * 1.5;
+    return afterBH > beforeBH * 1.5;
   }
 
   /**
@@ -354,9 +356,13 @@ export class FeedbackSummarizer {
     }
 
     // Body height significantly changed (page reload)
-    const heightDiff = Math.abs(after.bodyHeight - before.bodyHeight);
-    if (heightDiff > before.bodyHeight * 0.5) {
-      return true;
+    const beforeBH = before.bodyHeight ?? 0;
+    const afterBH = after.bodyHeight ?? 0;
+    if (beforeBH > 0) {
+      const heightDiff = Math.abs(afterBH - beforeBH);
+      if (heightDiff > beforeBH * 0.5) {
+        return true;
+      }
     }
 
     return false;
@@ -398,8 +404,9 @@ export class FeedbackSummarizer {
     }
 
     // Errors
-    if (feedback.errors?.length > 0) {
-      parts.push(`Errors: ${feedback.errors.join('; ')}`);
+    const errs = feedback.errors;
+    if (errs && errs.length > 0) {
+      parts.push(`Errors: ${errs.join('; ')}`);
     }
 
     // Hint

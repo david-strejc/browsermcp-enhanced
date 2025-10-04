@@ -158,3 +158,25 @@ This is the first stable, production-ready release of BrowserMCP Enhanced. After
 [0.9.2]: https://github.com/david-strejc/browsermcp-enhanced/releases/tag/v0.9.2
 [0.9.1]: https://github.com/david-strejc/browsermcp-enhanced/releases/tag/v0.9.1
 [0.9.0]: https://github.com/david-strejc/browsermcp-enhanced/releases/tag/v0.9.0
+
+## [1.30.3] - 2025-10-04
+
+### Fixed
+- Session→tab dataflow stabilized across MCP → Daemon → Extension.
+- Per-session tab creation and sticky routing; no cross-session tab collisions.
+
+### Added
+- Extension emits debug events per command with sessionId, resolvedTabId, and session tab list.
+- Daemon logs commands/responses/events to `/tmp/browsermcp-events.log` for diagnostics.
+- Daemon learns `tabId` from responses and updates `currentTabId` + `tabOwner`.
+- Context auto-learns `tabId` from daemon replies.
+
+### Notes
+- Chrome extension deployed to `/home/david/.local/lib/browsermcp-enhanced/chrome-extension`.
+- Extension version bumped to `1.30.3`; reload via `chrome://extensions` to activate service worker.
+
+## Version History Summary (addendum)
+
+| Version | Date | Type | Summary |
+|---------|------|------|---------|
+| 1.30.3 | 2025-10-04 | Patch | Multi-instance session→tab routing fix; logging improvements |

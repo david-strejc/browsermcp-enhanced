@@ -61,13 +61,15 @@ export interface ActionFeedback {
 
 // Raw data collected from extension
 export interface RawFeedbackBundle {
-  mutations: any[];       // DOM mutations
-  errors: ErrorEvent[];   // Console/JS errors
-  network: NetworkActivity[]; // Network requests
-  duration: number;       // Action duration
-  timestamp: number;      // When action started
+  mutations: any;                 // DOM mutations summary (object) or array
+  errors: ErrorEvent[];           // Console/JS errors
+  network: NetworkActivity[];     // Network requests
+  duration: number;               // Action duration
+  timestamp: number;              // When action started
+  viewport?: { width: number; height: number }; // Viewport size
+  ref?: string;                   // element reference (optional)
   
-  // Element state
+  // Element state (extended)
   elementState?: {
     exists: boolean;
     visible: boolean;
@@ -75,14 +77,30 @@ export interface RawFeedbackBundle {
     focused: boolean;
     value?: any;
     rect?: DOMRect;
+    obscured?: boolean;
+    tag?: string;
+    type?: string;
+    attributes?: string[];
+    shadowRoot?: boolean;
+    frameId?: string;
   };
   
-  // Page state
+  // Page state (before/after for navigation detection)
   pageState?: {
-    url: string;
-    title: string;
-    readyState: string;
-    scrollPosition: { x: number; y: number };
+    before?: {
+      url: string;
+      title: string;
+      readyState?: string;
+      scrollPosition: { x: number; y: number };
+      bodyHeight?: number;
+    };
+    after?: {
+      url: string;
+      title: string;
+      readyState?: string;
+      scrollPosition: { x: number; y: number };
+      bodyHeight?: number;
+    };
   };
 }
 
@@ -100,6 +118,7 @@ export interface ErrorEvent {
 // Recovery hint templates - Now integrated with HintEngine
 // These are fallbacks when HintEngine is not available
 export const RecoveryHints = {
+  [FeedbackCode.SUCCESS]: "",
   [FeedbackCode.NOT_FOUND]: "Element not found. Use browser_snapshot to refresh references or browser_execute_js to search by different criteria.",
   [FeedbackCode.DISABLED]: "Element is disabled. Use browser_execute_js to check and enable it, or wait for page conditions to change.",
   [FeedbackCode.OBSCURED]: "Element is obscured by another element. Use browser_execute_js to remove overlays or scroll element into view.",
@@ -109,6 +128,7 @@ export const RecoveryHints = {
   [FeedbackCode.PERMISSION]: "Permission denied. The page may require authentication or the action may be restricted.",
   [FeedbackCode.VALIDATION]: "Validation failed. Check the expected format and use browser_execute_js to inspect validation rules.",
   [FeedbackCode.NAVIGATION]: "Unexpected navigation occurred. Use browser_snapshot to get new page context.",
+  [FeedbackCode.EXECUTION_ERROR]: "Execution error. Verify JS execution context and consider unsafe mode only if necessary.",
   [FeedbackCode.UNKNOWN]: "Unknown error. Use browser_get_console_logs and browser_execute_js to investigate."
 };
 
@@ -189,5 +209,6 @@ export const FeedbackCodeLabels: Record<FeedbackCode, string> = {
   [FeedbackCode.NETWORK_ERROR]: "NetError",
   [FeedbackCode.PERMISSION]: "Permission",
   [FeedbackCode.VALIDATION]: "Validation",
+  [FeedbackCode.EXECUTION_ERROR]: "ExecError",
   [FeedbackCode.UNKNOWN]: "Unknown"
 };
